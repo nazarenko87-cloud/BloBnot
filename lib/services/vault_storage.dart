@@ -72,4 +72,44 @@ class VaultStorage {
     final f = File(note.path);
     if (await f.exists()) await f.delete();
   }
+
+  Directory get _archiveDir => Directory(p.join(root, '_archive'));
+
+  /// Soft delete: move the note file into `{vault}/_archive/`.
+  Future<void> archive(Note note) async {
+    await _archiveDir.create(recursive: true);
+    var dest = p.join(_archiveDir.path, p.basename(note.path));
+    var i = 1;
+    while (await File(dest).exists()) {
+      dest = p.join(_archiveDir.path, '${note.title} ($i).md');
+      i++;
+    }
+    await File(note.path).rename(dest);
+  }
+
+  /// Archived notes (loaded shallowly from `_archive/`).
+  Future<List<Note>> loadArchived() async {
+    if (!_archiveDir.existsSync()) return [];
+    final notes = <Note>[];
+    await for (final e in _archiveDir.list(followLinks: false)) {
+      if (e is File && e.path.toLowerCase().endsWith('.md')) {
+        notes.add(await _readFile(e));
+      }
+    }
+    notes.sort(
+      (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+    );
+    return notes;
+  }
+
+  /// Move an archived note back to the vault root.
+  Future<void> restore(Note note) async {
+    var dest = p.join(root, p.basename(note.path));
+    var i = 1;
+    while (await File(dest).exists()) {
+      dest = p.join(root, '${note.title} ($i).md');
+      i++;
+    }
+    await File(note.path).rename(dest);
+  }
 }

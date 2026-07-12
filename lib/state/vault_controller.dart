@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/note.dart';
 import '../services/password_store.dart';
+import '../services/pinned_store.dart';
 import '../services/reminder_store.dart';
 import '../services/settings_store.dart';
 import '../services/vault_storage.dart';
@@ -22,6 +23,7 @@ class VaultController extends ChangeNotifier {
   VaultStorage? _storage;
   SettingsStore? _settingsStore;
   ReminderStore? _reminderStore;
+  PinnedStore? _pinnedStore;
 
   List<Note> _notes = [];
   Note? _current;
@@ -29,6 +31,7 @@ class VaultController extends ChangeNotifier {
   bool _loading = false;
   bool _locked = false;
   Map<String, DateTime> _reminders = {};
+  Set<String> _pinned = {};
 
   /// Title of a reminder that just came due — the UI shows it and calls
   /// [dismissDueReminder]. Null when nothing is due.
@@ -44,6 +47,12 @@ class VaultController extends ChangeNotifier {
   String? get dueReminderTitle => _dueTitle;
 
   DateTime? reminderFor(String title) => _reminders[title];
+  bool isPinned(String title) => _pinned.contains(title);
+
+  /// Notes whose body wiki-links to [title].
+  List<Note> backlinksTo(String title) => _notes
+      .where((n) => n.title != title && n.outgoingLinks.contains(title))
+      .toList();
 
   Timer? _saveTimer;
   Timer? _reminderTimer;
@@ -84,8 +93,10 @@ class VaultController extends ChangeNotifier {
     _storage = VaultStorage(root);
     _settingsStore = SettingsStore(root);
     _reminderStore = ReminderStore(root);
+    _pinnedStore = PinnedStore(root);
     _settings = await _settingsStore!.load();
     _reminders = await _reminderStore!.load();
+    _pinned = await _pinnedStore!.load();
     _notes = await _storage!.loadNotes();
     _current = _notes.isNotEmpty ? _notes.first : null;
     await AppSettings.setLastVault(root);
@@ -164,6 +175,36 @@ class VaultController extends ChangeNotifier {
     }
     notifyListeners();
   }
+
+  Future<void> togglePin(String title) async {
+    if (!_pinned.remove(title)) _pinned.add(title);
+    notifyListeners();
+    await _pinnedStore?.save(_pinned);
+  }
+
+  /// Soft delete: move to `_archive/` and drop pin/reminder bookkeeping.
+  Future<void> archiveNote(Note note) async {
+    await _flushPendingSave();
+    await _storage!.archive(note);
+    _notes.removeWhere((n) => n.path == note.path);
+    if (_pinned.remove(note.title)) await _pinnedStore?.save(_pinned);
+    if (_reminders.remove(note.title) != null) {
+      await _reminderStore?.save(_reminders);
+    }
+    if (_current?.path == note.path) {
+      _current = _notes.isNotEmpty ? _notes.first : null;
+    }
+    notifyListeners();
+  }
+
+  Future<List<Note>> loadArchived() => _storage!.loadArchived();
+
+  Future<void> restoreArchived(Note note) async {
+    await _storage!.restore(note);
+    await reload();
+  }
+
+  Future<void> deleteArchivedForever(Note note) => _storage!.delete(note);
 
   Future<void> setReminder(String title, DateTime when) async {
     _reminders[title] = when;

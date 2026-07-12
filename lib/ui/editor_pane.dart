@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 
 import '../models/note.dart';
 import '../services/attachment_store.dart';
+import '../services/export_service.dart';
 import '../state/vault_controller.dart';
+import 'sticker_picker.dart';
 
 enum ViewMode { edit, split, preview }
 
@@ -63,12 +65,54 @@ class _EditorPaneState extends State<EditorPane> {
           controller: _textController,
           onChanged: () => controller.editCurrentBody(_textController.text),
           onAttach: () => _attachFile(context),
+          onSticker: () => _pickSticker(context),
+          onExportHtml: () => _export(context, note, ExportService.toHtml),
+          onExportPdf: () => _export(context, note, ExportService.toPdf),
         ),
         const Divider(height: 1),
         Expanded(child: _body(context, note)),
+        _BacklinksPanel(note: note),
         _AttachmentsPanel(note: note),
       ],
     );
+  }
+
+  Future<void> _export(
+    BuildContext context,
+    Note note,
+    Future<String> Function(Note) exporter,
+  ) async {
+    try {
+      final path = await exporter(note);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Saved: $path')),
+        );
+      }
+    } on Exception catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickSticker(BuildContext context) async {
+    final controller = context.read<VaultController>();
+    final asset = await showStickerPicker(context);
+    if (asset == null) return;
+    final snippet = '![sticker]($asset)';
+    final sel = _textController.selection;
+    final offset = sel.isValid ? sel.start : _textController.text.length;
+    _textController.text = _textController.text.replaceRange(
+      offset,
+      sel.isValid ? sel.end : offset,
+      snippet,
+    );
+    _textController.selection =
+        TextSelection.collapsed(offset: offset + snippet.length);
+    controller.editCurrentBody(_textController.text);
   }
 
   Widget _header(BuildContext context, VaultController controller, Note note) {
@@ -265,6 +309,49 @@ class _EditorPaneState extends State<EditorPane> {
       data: rendered,
       selectable: true,
       padding: const EdgeInsets.all(16),
+      sizedImageBuilder: (config) {
+        final src = config.uri.toString();
+        if (src.startsWith('assets/')) {
+          return Image.asset(src, width: 72, height: 72);
+        }
+        return Text(config.alt ?? src);
+      },
+    );
+  }
+}
+
+class _BacklinksPanel extends StatelessWidget {
+  const _BacklinksPanel({required this.note});
+
+  final Note note;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<VaultController>();
+    final backlinks = controller.backlinksTo(note.title);
+    if (backlinks.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Divider(height: 1),
+        ExpansionTile(
+          dense: true,
+          title: Text(
+            'Backlinks (${backlinks.length})',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          children: [
+            for (final n in backlinks)
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.arrow_back, size: 16),
+                title: Text(n.title),
+                onTap: () => controller.select(n),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -388,11 +475,17 @@ class _Toolbar extends StatelessWidget {
     required this.controller,
     required this.onChanged,
     required this.onAttach,
+    required this.onSticker,
+    required this.onExportHtml,
+    required this.onExportPdf,
   });
 
   final TextEditingController controller;
   final VoidCallback onChanged;
   final VoidCallback onAttach;
+  final VoidCallback onSticker;
+  final VoidCallback onExportHtml;
+  final VoidCallback onExportPdf;
 
   void _wrap(String left, String right) {
     final sel = controller.selection;
@@ -447,6 +540,9 @@ class _Toolbar extends StatelessWidget {
             () => _prefixLine('- [ ] '),
           ),
           btn(Icons.title, 'Heading', () => _prefixLine('# ')),
+          btn(Icons.emoji_emotions_outlined, 'Sticker', onSticker),
+          btn(Icons.code, 'Export HTML', onExportHtml),
+          btn(Icons.picture_as_pdf_outlined, 'Export PDF', onExportPdf),
           const SizedBox(width: 4),
           // Prominent, at the very end of the toolbar (per handoff) — and the
           // toolbar scrolls horizontally, so it can never be clipped away.

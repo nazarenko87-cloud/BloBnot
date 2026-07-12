@@ -263,7 +263,7 @@ class _HomePageState extends State<HomePage> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const FlutterLogo(size: 56),
+            Image.asset('assets/logo.png', width: 96),
             const SizedBox(height: 12),
             const Text(
               'BloBnot',

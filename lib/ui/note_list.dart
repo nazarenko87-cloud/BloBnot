@@ -18,12 +18,16 @@ class _NoteListState extends State<NoteList> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<VaultController>();
-    final notes = controller.notes
+    final filtered = controller.notes
         .where((n) =>
             _query.isEmpty ||
             n.title.toLowerCase().contains(_query.toLowerCase()) ||
             n.body.toLowerCase().contains(_query.toLowerCase()))
         .toList();
+    final pinned =
+        filtered.where((n) => controller.isPinned(n.title)).toList();
+    final rest =
+        filtered.where((n) => !controller.isPinned(n.title)).toList();
 
     return Column(
       children: [
@@ -56,22 +60,94 @@ class _NoteListState extends State<NoteList> {
         ),
         const SizedBox(height: 8),
         Expanded(
-          child: ListView.builder(
-            itemCount: notes.length,
-            itemBuilder: (context, i) {
-              final note = notes[i];
-              final selected = controller.current?.path == note.path;
-              return _NoteTile(
-                note: note,
-                selected: selected,
-                hasReminder: controller.reminderFor(note.title) != null,
-                onTap: () => controller.select(note),
-                onDelete: () => _confirmDelete(context, note),
-              );
-            },
+          child: ListView(
+            children: [
+              if (pinned.isNotEmpty) ...[
+                const _SectionLabel('Pinned'),
+                for (final note in pinned) _tile(context, controller, note),
+                const Divider(height: 8),
+              ],
+              for (final note in rest) _tile(context, controller, note),
+            ],
           ),
         ),
+        const Divider(height: 1),
+        TextButton.icon(
+          icon: const Icon(Icons.archive_outlined, size: 16),
+          label: const Text('Archive'),
+          onPressed: () => _showArchive(context),
+        ),
       ],
+    );
+  }
+
+  Widget _tile(BuildContext context, VaultController controller, Note note) {
+    return _NoteTile(
+      note: note,
+      selected: controller.current?.path == note.path,
+      hasReminder: controller.reminderFor(note.title) != null,
+      pinned: controller.isPinned(note.title),
+      onTap: () => controller.select(note),
+      onPin: () => controller.togglePin(note.title),
+      onArchive: () => controller.archiveNote(note),
+      onDelete: () => _confirmDelete(context, note),
+    );
+  }
+
+  Future<void> _showArchive(BuildContext context) async {
+    final controller = context.read<VaultController>();
+    final archived = await controller.loadArchived();
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Archive (${archived.length})'),
+        content: SizedBox(
+          width: 420,
+          child: archived.isEmpty
+              ? const Text('Archive is empty.')
+              : ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final note in archived)
+                      ListTile(
+                        dense: true,
+                        title: Text(note.title),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Restore',
+                              icon: const Icon(Icons.unarchive, size: 18),
+                              onPressed: () async {
+                                await controller.restoreArchived(note);
+                                if (context.mounted) Navigator.pop(context);
+                              },
+                            ),
+                            IconButton(
+                              tooltip: 'Delete forever',
+                              icon: const Icon(
+                                Icons.delete_forever,
+                                size: 18,
+                              ),
+                              onPressed: () async {
+                                await controller.deleteArchivedForever(note);
+                                if (context.mounted) Navigator.pop(context);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -99,19 +175,45 @@ class _NoteListState extends State<NoteList> {
   }
 }
 
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+      ),
+    );
+  }
+}
+
 class _NoteTile extends StatelessWidget {
   const _NoteTile({
     required this.note,
     required this.selected,
     required this.hasReminder,
+    required this.pinned,
     required this.onTap,
+    required this.onPin,
+    required this.onArchive,
     required this.onDelete,
   });
 
   final Note note;
   final bool selected;
   final bool hasReminder;
+  final bool pinned;
   final VoidCallback onTap;
+  final VoidCallback onPin;
+  final VoidCallback onArchive;
   final VoidCallback onDelete;
 
   @override
@@ -138,6 +240,10 @@ class _NoteTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          if (pinned) ...[
+            const SizedBox(width: 4),
+            Icon(Icons.push_pin, size: 12, color: accent),
+          ],
           if (hasReminder) ...[
             const SizedBox(width: 4),
             Icon(Icons.notifications_active, size: 13, color: accent),
@@ -146,11 +252,19 @@ class _NoteTile extends StatelessWidget {
       ),
       trailing: PopupMenuButton<String>(
         icon: const Icon(Icons.more_horiz, size: 18),
-        onSelected: (v) {
-          if (v == 'delete') onDelete();
+        onSelected: (v) => switch (v) {
+          'pin' => onPin(),
+          'archive' => onArchive(),
+          'delete' => onDelete(),
+          _ => null,
         },
-        itemBuilder: (context) => const [
-          PopupMenuItem(value: 'delete', child: Text('Delete')),
+        itemBuilder: (context) => [
+          PopupMenuItem(
+            value: 'pin',
+            child: Text(pinned ? 'Unpin' : 'Pin to top'),
+          ),
+          const PopupMenuItem(value: 'archive', child: Text('Archive')),
+          const PopupMenuItem(value: 'delete', child: Text('Delete')),
         ],
       ),
       onTap: onTap,
