@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:blobnot/services/settings_store.dart';
 import 'package:blobnot/state/vault_controller.dart';
 import 'package:blobnot/ui/home_page.dart';
 import 'package:flutter/material.dart';
@@ -20,6 +21,7 @@ void main() {
 
     await tester.runAsync(() async {
       dir = await Directory.systemTemp.createTemp('blobnot_test');
+      AppSettings.overrideFile = File('${dir.path}/app_settings.json');
       File('${dir.path}/Alpha.md')
           .writeAsStringSync('# Alpha\n\nLinks to [[Beta]].');
       File('${dir.path}/Beta.md').writeAsStringSync('# Beta\n\nPlain note.');
@@ -48,6 +50,7 @@ void main() {
     // Dispose the widget tree (stops the graph ticker) before the controller.
     await tester.pumpWidget(const SizedBox());
     controller.dispose();
+    AppSettings.overrideFile = null;
     await tester.runAsync(() => dir.delete(recursive: true));
   }, timeout: const Timeout(Duration(seconds: 60)));
 }

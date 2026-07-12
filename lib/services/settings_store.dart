@@ -48,7 +48,13 @@ class SettingsStore {
 /// App-local settings kept in `~/.bloknot/settings.json` (do NOT travel with
 /// the vault): last opened vault path.
 class AppSettings {
+  /// Test seam: when set, reads/writes go to this file instead of the real
+  /// `~/.bloknot/settings.json`. Tests MUST set this to avoid clobbering the
+  /// user's actual settings.
+  static File? overrideFile;
+
   static File get _file {
+    if (overrideFile != null) return overrideFile!;
     final home = Platform.environment['USERPROFILE'] ??
         Platform.environment['HOME'] ??
         '.';

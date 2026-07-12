@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:blobnot/services/password_store.dart';
+import 'package:blobnot/services/settings_store.dart';
 import 'package:blobnot/state/vault_controller.dart';
 import 'package:blobnot/ui/home_page.dart';
 import 'package:flutter/material.dart';
@@ -17,9 +18,11 @@ void main() {
 
   setUp(() async {
     tmp = await Directory.systemTemp.createTemp('blobnot_lock');
+    AppSettings.overrideFile = File('${tmp.path}/app_settings.json');
   });
 
   tearDown(() async {
+    AppSettings.overrideFile = null;
     // Retry: debounced/unawaited writes may briefly hold files on Windows.
     for (var i = 0; i < 10; i++) {
       try {
