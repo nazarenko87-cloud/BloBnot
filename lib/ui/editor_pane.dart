@@ -13,6 +13,7 @@ import '../services/export_service.dart';
 import '../state/vault_controller.dart';
 import '../utils/editor_ops.dart';
 import '../utils/line_reminders.dart';
+import '../utils/markdown_highlight.dart';
 import 'sticker_picker.dart';
 
 enum ViewMode { edit, split, preview }
@@ -25,7 +26,7 @@ class EditorPane extends StatefulWidget {
 }
 
 class _EditorPaneState extends State<EditorPane> {
-  final _textController = TextEditingController();
+  final _textController = HighlightingTextController();
   final _scroll = ScrollController();
   final _focus = FocusNode();
   final _findController = TextEditingController();

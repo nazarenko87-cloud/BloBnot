@@ -191,6 +191,7 @@ class _GraphViewState extends State<GraphView>
                     nodes: _nodes,
                     edges: _edges,
                     accent: accent,
+                    surface: Theme.of(context).scaffoldBackgroundColor,
                     currentTitle: currentTitle,
                     labelColor: Theme.of(context).textTheme.bodySmall?.color ??
                         Colors.grey,
@@ -206,11 +207,15 @@ class _GraphViewState extends State<GraphView>
   }
 }
 
+/// Amber ring for regular nodes (original v1.0 neon-ring style).
+const _kNodeRing = Color(0xFFE0A34F);
+
 class _GraphPainter extends CustomPainter {
   _GraphPainter({
     required this.nodes,
     required this.edges,
     required this.accent,
+    required this.surface,
     required this.currentTitle,
     required this.labelColor,
   });
@@ -218,6 +223,7 @@ class _GraphPainter extends CustomPainter {
   final List<_Node> nodes;
   final List<(int, int)> edges;
   final Color accent;
+  final Color surface;
   final String? currentTitle;
   final Color labelColor;
 
@@ -225,38 +231,53 @@ class _GraphPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // Soft glow underlay + crisp line so connections read clearly.
     final edgeGlow = Paint()
-      ..color = accent.withValues(alpha: 0.25)
-      ..strokeWidth = 4
+      ..color = accent.withValues(alpha: 0.2)
+      ..strokeWidth = 3
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
     final edgePaint = Paint()
-      ..color = accent.withValues(alpha: 0.75)
-      ..strokeWidth = 1.6;
+      ..color = accent.withValues(alpha: 0.55)
+      ..strokeWidth = 1.4;
     for (final (from, to) in edges) {
       canvas.drawLine(nodes[from].pos, nodes[to].pos, edgeGlow);
       canvas.drawLine(nodes[from].pos, nodes[to].pos, edgePaint);
     }
     for (final node in nodes) {
       final isCurrent = node.title == currentTitle;
-      final r = isCurrent ? 12.0 : 9.0;
+      final ring = isCurrent ? accent : _kNodeRing;
+      final r = isCurrent ? 15.0 : 12.0;
+
+      // Outlined ring node with the letter/glyph inside (original style).
       final glow = Paint()
-        ..color = accent.withValues(alpha: node.pinned ? 0.5 : 0.25)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-      canvas.drawCircle(node.pos, r + 4, glow);
+        ..color = ring.withValues(alpha: node.pinned ? 0.55 : 0.3)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+      canvas.drawCircle(node.pos, r + 2, glow);
+      canvas.drawCircle(node.pos, r, Paint()..color = surface);
       canvas.drawCircle(
         node.pos,
         r,
-        Paint()..color = isCurrent ? accent : accent.withValues(alpha: 0.8),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = isCurrent ? 2.4 : 1.8
+          ..color = ring,
       );
-      if (node.glyph != null) {
-        final gp = TextPainter(
-          text: TextSpan(
-            text: node.glyph,
-            style: TextStyle(fontSize: r * 1.1),
+
+      final inner = node.glyph ??
+          (node.title.isEmpty
+              ? '?'
+              : node.title.characters.first.toUpperCase());
+      final gp = TextPainter(
+        text: TextSpan(
+          text: inner,
+          style: TextStyle(
+            fontSize: node.glyph != null ? r : r * 0.9,
+            fontWeight: FontWeight.w700,
+            color: node.glyph != null ? null : ring,
           ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        gp.paint(canvas, node.pos - Offset(gp.width / 2, gp.height / 2));
-      }
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      gp.paint(canvas, node.pos - Offset(gp.width / 2, gp.height / 2));
+
       final tp = TextPainter(
         text: TextSpan(
           text: node.title,
@@ -266,7 +287,7 @@ class _GraphPainter extends CustomPainter {
         maxLines: 1,
         ellipsis: '…',
       )..layout(maxWidth: 120);
-      tp.paint(canvas, node.pos + Offset(-tp.width / 2, r + 3));
+      tp.paint(canvas, node.pos + Offset(-tp.width / 2, r + 4));
     }
   }
 

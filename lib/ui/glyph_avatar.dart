@@ -70,11 +70,19 @@ class _MedallionPainter extends CustomPainter {
     final center = size.center(Offset.zero);
     final r = size.shortestSide / 2 - 2;
 
-    // Base disc.
+    // Ring-style medallion (original v1.0 look): subtle fill + outline.
     canvas.drawCircle(
       center,
       r,
-      Paint()..color = color.withValues(alpha: 0.16),
+      Paint()..color = color.withValues(alpha: 0.08),
+    );
+    canvas.drawCircle(
+      center,
+      r,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6
+        ..color = color.withValues(alpha: progress == null ? 0.55 : 0.18),
     );
 
     if (progress != null) {
