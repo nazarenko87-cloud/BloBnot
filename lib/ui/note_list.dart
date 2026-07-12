@@ -64,6 +64,7 @@ class _NoteListState extends State<NoteList> {
               return _NoteTile(
                 note: note,
                 selected: selected,
+                hasReminder: controller.reminderFor(note.title) != null,
                 onTap: () => controller.select(note),
                 onDelete: () => _confirmDelete(context, note),
               );
@@ -102,12 +103,14 @@ class _NoteTile extends StatelessWidget {
   const _NoteTile({
     required this.note,
     required this.selected,
+    required this.hasReminder,
     required this.onTap,
     required this.onDelete,
   });
 
   final Note note;
   final bool selected;
+  final bool hasReminder;
   final VoidCallback onTap;
   final VoidCallback onDelete;
 
@@ -126,7 +129,21 @@ class _NoteTile extends StatelessWidget {
           style: TextStyle(fontSize: 12, color: accent),
         ),
       ),
-      title: Text(note.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(
+              note.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (hasReminder) ...[
+            const SizedBox(width: 4),
+            Icon(Icons.notifications_active, size: 13, color: accent),
+          ],
+        ],
+      ),
       trailing: PopupMenuButton<String>(
         icon: const Icon(Icons.more_horiz, size: 18),
         onSelected: (v) {

@@ -1,8 +1,10 @@
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
 
 import '../models/note.dart';
+import '../services/attachment_store.dart';
 import '../state/vault_controller.dart';
 
 enum ViewMode { edit, split, preview }
@@ -56,18 +58,21 @@ class _EditorPaneState extends State<EditorPane> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _header(context, note),
+        _header(context, controller, note),
         _Toolbar(
           controller: _textController,
           onChanged: () => controller.editCurrentBody(_textController.text),
+          onAttach: () => _attachFile(context),
         ),
         const Divider(height: 1),
         Expanded(child: _body(context, note)),
+        _AttachmentsPanel(note: note),
       ],
     );
   }
 
-  Widget _header(BuildContext context, Note note) {
+  Widget _header(BuildContext context, VaultController controller, Note note) {
+    final reminder = controller.reminderFor(note.title);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 12, 4),
       child: Row(
@@ -76,22 +81,44 @@ class _EditorPaneState extends State<EditorPane> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(note.title,
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.w700)),
-                Text('${note.wordCount} words · ${note.readMinutes} min',
-                    style:
-                        TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                Text(
+                  note.title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  '${note.wordCount} words · ${note.readMinutes} min'
+                  '${reminder != null ? '  ·  🔔 ${_fmt(reminder)}' : ''}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                ),
               ],
             ),
+          ),
+          IconButton(
+            tooltip: reminder == null ? 'Set reminder' : 'Edit reminder',
+            icon: Icon(
+              reminder == null
+                  ? Icons.notifications_none
+                  : Icons.notifications_active,
+              color: reminder == null
+                  ? null
+                  : Theme.of(context).colorScheme.primary,
+            ),
+            onPressed: () => _editReminder(context, controller, note, reminder),
           ),
           SegmentedButton<ViewMode>(
             segments: const [
               ButtonSegment(value: ViewMode.edit, icon: Icon(Icons.edit)),
               ButtonSegment(
-                  value: ViewMode.split, icon: Icon(Icons.vertical_split)),
+                value: ViewMode.split,
+                icon: Icon(Icons.vertical_split),
+              ),
               ButtonSegment(
-                  value: ViewMode.preview, icon: Icon(Icons.visibility)),
+                value: ViewMode.preview,
+                icon: Icon(Icons.visibility),
+              ),
             ],
             selected: {_mode},
             showSelectedIcon: false,
@@ -100,6 +127,78 @@ class _EditorPaneState extends State<EditorPane> {
         ],
       ),
     );
+  }
+
+  static String _fmt(DateTime t) =>
+      '${t.day.toString().padLeft(2, '0')}.${t.month.toString().padLeft(2, '0')} '
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  Future<void> _editReminder(
+    BuildContext context,
+    VaultController controller,
+    Note note,
+    DateTime? existing,
+  ) async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: existing ?? now,
+      firstDate: now.subtract(const Duration(days: 1)),
+      lastDate: now.add(const Duration(days: 365 * 5)),
+    );
+    if (date == null || !context.mounted) {
+      // Allow clearing an existing reminder by cancelling the date picker.
+      if (existing != null && context.mounted) {
+        final clear = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Remove reminder?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Keep'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Remove'),
+              ),
+            ],
+          ),
+        );
+        if (clear == true) await controller.clearReminder(note.title);
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(existing ?? now),
+    );
+    if (time == null) return;
+    await controller.setReminder(
+      note.title,
+      DateTime(date.year, date.month, date.day, time.hour, time.minute),
+    );
+  }
+
+  Future<void> _attachFile(BuildContext context) async {
+    final controller = context.read<VaultController>();
+    final root = controller.vaultRoot;
+    if (root == null) return;
+    final file = await openFile();
+    if (file == null || !context.mounted) return;
+    final name = await AttachmentStore(root).add(file.path);
+    final link = '[📎 $name](attachments/${Uri.encodeComponent(name)})';
+    final sel = _textController.selection;
+    final offset = sel.isValid ? sel.start : _textController.text.length;
+    _textController.text = _textController.text.replaceRange(
+      offset,
+      sel.isValid ? sel.end : offset,
+      link,
+    );
+    _textController.selection =
+        TextSelection.collapsed(offset: offset + link.length);
+    controller.editCurrentBody(_textController.text);
   }
 
   Widget _body(BuildContext context, Note note) {
@@ -137,7 +236,10 @@ class _EditorPaneState extends State<EditorPane> {
                     expands: false,
                     keyboardType: TextInputType.multiline,
                     style: const TextStyle(
-                        fontFamily: 'monospace', height: 1.5, fontSize: 14),
+                      fontFamily: 'monospace',
+                      height: 1.5,
+                      fontSize: 14,
+                    ),
                     decoration: const InputDecoration(
                       border: InputBorder.none,
                       isCollapsed: true,
@@ -167,6 +269,85 @@ class _EditorPaneState extends State<EditorPane> {
   }
 }
 
+class _AttachmentsPanel extends StatelessWidget {
+  const _AttachmentsPanel({required this.note});
+
+  final Note note;
+
+  @override
+  Widget build(BuildContext context) {
+    final names = AttachmentStore.referencedIn(note.body);
+    if (names.isEmpty) return const SizedBox.shrink();
+    final controller = context.read<VaultController>();
+    final store = AttachmentStore(controller.vaultRoot!);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Divider(height: 1),
+        ExpansionTile(
+          dense: true,
+          title: Text(
+            'Attachments (${names.length})',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          children: [
+            for (final name in names)
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.attach_file, size: 18),
+                title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Open',
+                      icon: const Icon(Icons.open_in_new, size: 18),
+                      onPressed: () => store.open(name),
+                    ),
+                    IconButton(
+                      tooltip: 'Delete file',
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      onPressed: () => _confirmDelete(context, store, name),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<void> _confirmDelete(
+    BuildContext context,
+    AttachmentStore store,
+    String name,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete "$name"?'),
+        content: const Text(
+          'The file will be removed from the attachments folder. '
+          'The link in the note text stays.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await store.delete(name);
+  }
+}
+
 class _LineNumbers extends StatelessWidget {
   const _LineNumbers({required this.text});
   final TextEditingController text;
@@ -179,19 +360,21 @@ class _LineNumbers extends StatelessWidget {
         final lines = '\n'.allMatches(text.text).length + 1;
         return Container(
           width: 40,
-          padding: const EdgeInsets.only(top: 0, right: 8),
+          padding: const EdgeInsets.only(right: 8),
           alignment: Alignment.topRight,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               for (var i = 1; i <= lines; i++)
-                Text('$i',
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      height: 1.5,
-                      fontSize: 14,
-                      color: Colors.grey.shade600,
-                    )),
+                Text(
+                  '$i',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    height: 1.5,
+                    fontSize: 14,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
             ],
           ),
         );
@@ -201,9 +384,15 @@ class _LineNumbers extends StatelessWidget {
 }
 
 class _Toolbar extends StatelessWidget {
-  const _Toolbar({required this.controller, required this.onChanged});
+  const _Toolbar({
+    required this.controller,
+    required this.onChanged,
+    required this.onAttach,
+  });
+
   final TextEditingController controller;
   final VoidCallback onChanged;
+  final VoidCallback onAttach;
 
   void _wrap(String left, String right) {
     final sel = controller.selection;
@@ -219,8 +408,7 @@ class _Toolbar extends StatelessWidget {
     final sel = controller.selection;
     if (!sel.isValid) return;
     final start = controller.text.lastIndexOf('\n', sel.start - 1) + 1;
-    final newText =
-        controller.text.replaceRange(start, start, prefix);
+    final newText = controller.text.replaceRange(start, start, prefix);
     controller.value = TextEditingValue(
       text: newText,
       selection: TextSelection.collapsed(offset: sel.end + prefix.length),
@@ -243,11 +431,30 @@ class _Toolbar extends StatelessWidget {
           btn(Icons.link, 'Wiki link', () => _wrap('[[', ']]')),
           btn(Icons.format_bold, 'Bold', () => _wrap('**', '**')),
           btn(Icons.format_italic, 'Italic', () => _wrap('*', '*')),
-          btn(Icons.format_list_bulleted, 'Bullet list', () => _prefixLine('- ')),
-          btn(Icons.format_list_numbered, 'Numbered list',
-              () => _prefixLine('1. ')),
-          btn(Icons.check_box_outlined, 'Checklist', () => _prefixLine('- [ ] ')),
+          btn(
+            Icons.format_list_bulleted,
+            'Bullet list',
+            () => _prefixLine('- '),
+          ),
+          btn(
+            Icons.format_list_numbered,
+            'Numbered list',
+            () => _prefixLine('1. '),
+          ),
+          btn(
+            Icons.check_box_outlined,
+            'Checklist',
+            () => _prefixLine('- [ ] '),
+          ),
           btn(Icons.title, 'Heading', () => _prefixLine('# ')),
+          const SizedBox(width: 4),
+          // Prominent, at the very end of the toolbar (per handoff) — and the
+          // toolbar scrolls horizontally, so it can never be clipped away.
+          OutlinedButton.icon(
+            onPressed: onAttach,
+            icon: const Icon(Icons.attach_file, size: 18),
+            label: const Text('Attach file'),
+          ),
           const SizedBox(width: 8),
         ],
       ),

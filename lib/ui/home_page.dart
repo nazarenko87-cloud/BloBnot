@@ -6,6 +6,7 @@ import '../main.dart' show kAppVersion;
 import '../state/vault_controller.dart';
 import 'editor_pane.dart';
 import 'graph_view.dart';
+import 'lock_screen.dart';
 import 'note_list.dart';
 
 class HomePage extends StatefulWidget {
@@ -19,10 +20,15 @@ class _HomePageState extends State<HomePage> {
   bool _showList = true;
   // Graph pane width as a fraction of the editor+graph area (18%–72%).
   double _graphFraction = 0.32;
+  bool _dueDialogShowing = false;
 
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<VaultController>();
+
+    if (controller.locked) return const LockScreen();
+
+    _maybeShowDueReminder(controller);
 
     if (!controller.hasVault) {
       return Scaffold(body: _NoVault(onOpen: () => _pickVault(context)));
@@ -33,7 +39,10 @@ class _HomePageState extends State<HomePage> {
         titleSpacing: 12,
         title: Row(
           children: [
-            const Text('BloBnot', style: TextStyle(fontWeight: FontWeight.w700)),
+            const Text(
+              'BloBnot',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
             const SizedBox(width: 8),
             Text(
               'v$kAppVersion',
@@ -44,7 +53,9 @@ class _HomePageState extends State<HomePage> {
         actions: [
           IconButton(
             tooltip: _showList ? 'Hide notes list' : 'Show notes list',
-            icon: Icon(_showList ? Icons.view_sidebar : Icons.view_sidebar_outlined),
+            icon: Icon(
+              _showList ? Icons.view_sidebar : Icons.view_sidebar_outlined,
+            ),
             onPressed: () => setState(() => _showList = !_showList),
           ),
           IconButton(
@@ -59,10 +70,18 @@ class _HomePageState extends State<HomePage> {
             icon: const Icon(Icons.folder_open),
             onPressed: () => _pickVault(context),
           ),
-          IconButton(
-            tooltip: 'About',
-            icon: const Icon(Icons.info_outline),
-            onPressed: () => _showAbout(context),
+          PopupMenuButton<String>(
+            tooltip: 'Menu',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (v) => switch (v) {
+              'password' => _passwordDialog(context),
+              'about' => _showAbout(context),
+              _ => null,
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'password', child: Text('Password…')),
+              PopupMenuItem(value: 'about', child: Text('About')),
+            ],
           ),
           const SizedBox(width: 8),
         ],
@@ -70,12 +89,42 @@ class _HomePageState extends State<HomePage> {
       body: Row(
         children: [
           if (_showList)
-            SizedBox(width: 260, child: NoteList(onNew: () => _newNote(context))),
+            SizedBox(
+              width: 260,
+              child: NoteList(onNew: () => _newNote(context)),
+            ),
           if (_showList) const VerticalDivider(width: 1),
           Expanded(child: _editorAndGraph(context)),
         ],
       ),
     );
+  }
+
+  /// Show the "reminder due" alert exactly once per firing.
+  void _maybeShowDueReminder(VaultController controller) {
+    final title = controller.dueReminderTitle;
+    if (title == null || _dueDialogShowing) return;
+    _dueDialogShowing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          icon: const Icon(Icons.notifications_active, size: 36),
+          title: Text(title),
+          content: const Text('Reminder is due.'),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      await context.read<VaultController>().dismissDueReminder();
+      _dueDialogShowing = false;
+    });
   }
 
   Widget _editorAndGraph(BuildContext context) {
@@ -88,8 +137,7 @@ class _HomePageState extends State<HomePage> {
             const Expanded(child: EditorPane()),
             _DragHandle(
               onDrag: (dx) => setState(() {
-                _graphFraction =
-                    (_graphFraction - dx / total).clamp(0.18, 0.72);
+                _graphFraction = (_graphFraction - dx / total).clamp(0.18, 0.72);
               }),
             ),
             SizedBox(width: graphWidth, child: const GraphView()),
@@ -137,6 +185,77 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Future<void> _passwordDialog(BuildContext context) async {
+    final controller = context.read<VaultController>();
+    final store = controller.passwordStore;
+    final has = await store.hasPassword();
+    if (!context.mounted) return;
+
+    final currentCtrl = TextEditingController();
+    final newCtrl = TextEditingController();
+
+    final action = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(has ? 'Change password' : 'Set password'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (has)
+              TextField(
+                controller: currentCtrl,
+                obscureText: true,
+                decoration:
+                    const InputDecoration(labelText: 'Current password'),
+              ),
+            TextField(
+              controller: newCtrl,
+              obscureText: true,
+              autofocus: !has,
+              decoration: const InputDecoration(
+                labelText: 'New password (empty = remove)',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, 'save'),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (action != 'save' || !context.mounted) return;
+
+    if (has && !await store.verify(currentCtrl.text)) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Wrong current password')),
+        );
+      }
+      return;
+    }
+    if (newCtrl.text.isEmpty) {
+      await store.clearPassword();
+    } else {
+      await store.setPassword(newCtrl.text);
+    }
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            newCtrl.text.isEmpty ? 'Password removed' : 'Password set',
+          ),
+        ),
+      );
+    }
+  }
+
   void _showAbout(BuildContext context) {
     showDialog<void>(
       context: context,
@@ -146,9 +265,14 @@ class _HomePageState extends State<HomePage> {
           children: [
             const FlutterLogo(size: 56),
             const SizedBox(height: 12),
-            const Text('BloBnot',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
-            Text('v$kAppVersion', style: TextStyle(color: Colors.grey.shade500)),
+            const Text(
+              'BloBnot',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+            ),
+            Text(
+              'v$kAppVersion',
+              style: TextStyle(color: Colors.grey.shade500),
+            ),
             const SizedBox(height: 8),
             const Text('Created by Nazarenko Andrii'),
           ],
@@ -196,8 +320,10 @@ class _NoVault extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('BloBnot',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700)),
+          const Text(
+            'BloBnot',
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+          ),
           const SizedBox(height: 8),
           const Text('Choose a folder to use as your vault.'),
           const SizedBox(height: 16),
