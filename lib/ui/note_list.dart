@@ -28,6 +28,15 @@ class _NoteListState extends State<NoteList> {
         filtered.where((n) => controller.isPinned(n.title)).toList();
     final rest =
         filtered.where((n) => !controller.isPinned(n.title)).toList();
+    final rootNotes =
+        rest.where((n) => controller.projectOf(n).isEmpty).toList();
+    final byProject = <String, List<Note>>{
+      for (final name in controller.projects) name: [],
+    };
+    for (final n in rest) {
+      final proj = controller.projectOf(n);
+      if (proj.isNotEmpty) byProject.putIfAbsent(proj, () => []).add(n);
+    }
 
     return Column(
       children: [
@@ -38,6 +47,11 @@ class _NoteListState extends State<NoteList> {
               Text('Notes  ${controller.notes.length}',
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               const Spacer(),
+              IconButton(
+                tooltip: 'New project (folder)',
+                icon: const Icon(Icons.create_new_folder_outlined, size: 20),
+                onPressed: () => _newProject(context),
+              ),
               IconButton(
                 tooltip: 'New note',
                 icon: const Icon(Icons.add),
@@ -67,7 +81,24 @@ class _NoteListState extends State<NoteList> {
                 for (final note in pinned) _tile(context, controller, note),
                 const Divider(height: 8),
               ],
-              for (final note in rest) _tile(context, controller, note),
+              for (final e in byProject.entries)
+                ExpansionTile(
+                  dense: true,
+                  initiallyExpanded: true,
+                  leading: const Icon(Icons.folder_outlined, size: 18),
+                  title: Text(
+                    '${e.key}  ${e.value.length}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  children: [
+                    for (final note in e.value)
+                      _tile(context, controller, note),
+                  ],
+                ),
+              for (final note in rootNotes) _tile(context, controller, note),
             ],
           ),
         ),
@@ -92,6 +123,34 @@ class _NoteListState extends State<NoteList> {
       onArchive: () => controller.archiveNote(note),
       onDelete: () => _confirmDelete(context, note),
     );
+  }
+
+  Future<void> _newProject(BuildContext context) async {
+    final ctrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('New project'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Folder name'),
+          onSubmitted: (v) => Navigator.pop(context, v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty || !context.mounted) return;
+    await context.read<VaultController>().createProject(name);
   }
 
   Future<void> _showArchive(BuildContext context) async {

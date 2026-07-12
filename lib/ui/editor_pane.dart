@@ -1,5 +1,6 @@
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
 
@@ -7,6 +8,7 @@ import '../models/note.dart';
 import '../services/attachment_store.dart';
 import '../services/export_service.dart';
 import '../state/vault_controller.dart';
+import '../utils/editor_ops.dart';
 import 'sticker_picker.dart';
 
 enum ViewMode { edit, split, preview }
@@ -22,15 +24,31 @@ class _EditorPaneState extends State<EditorPane> {
   final _textController = TextEditingController();
   final _scroll = ScrollController();
   final _focus = FocusNode();
+  final _findController = TextEditingController();
+  final _replaceController = TextEditingController();
   ViewMode _mode = ViewMode.split;
   String? _loadedPath;
+  bool _findVisible = false;
 
   @override
   void dispose() {
     _textController.dispose();
     _scroll.dispose();
     _focus.dispose();
+    _findController.dispose();
+    _replaceController.dispose();
     super.dispose();
+  }
+
+  void _commitText() {
+    context.read<VaultController>().editCurrentBody(_textController.text);
+  }
+
+  /// Replace the whole body from outside the TextField (checkbox toggles,
+  /// find&replace) and persist.
+  void _setBody(String body) {
+    _textController.text = body;
+    _commitText();
   }
 
   /// Sync the text field when the selected note changes (but not on our own
@@ -57,23 +75,98 @@ class _EditorPaneState extends State<EditorPane> {
       return const Center(child: Text('No note selected'));
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _header(context, controller, note),
-        _Toolbar(
-          controller: _textController,
-          onChanged: () => controller.editCurrentBody(_textController.text),
-          onAttach: () => _attachFile(context),
-          onSticker: () => _pickSticker(context),
-          onExportHtml: () => _export(context, note, ExportService.toHtml),
-          onExportPdf: () => _export(context, note, ExportService.toPdf),
-        ),
-        const Divider(height: 1),
-        Expanded(child: _body(context, note)),
-        _BacklinksPanel(note: note),
-        _AttachmentsPanel(note: note),
-      ],
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyB, control: true): () {
+          EditorOps.wrapSelection(_textController, '**', '**');
+          _commitText();
+        },
+        const SingleActivator(LogicalKeyboardKey.keyI, control: true): () {
+          EditorOps.wrapSelection(_textController, '*', '*');
+          _commitText();
+        },
+        const SingleActivator(LogicalKeyboardKey.keyK, control: true): () {
+          EditorOps.wrapSelection(_textController, '[[', ']]');
+          _commitText();
+        },
+        const SingleActivator(LogicalKeyboardKey.keyH, control: true): () {
+          setState(() => _findVisible = !_findVisible);
+        },
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _header(context, controller, note),
+          _Toolbar(
+            controller: _textController,
+            onChanged: _commitText,
+            onAttach: () => _attachFile(context),
+            onSticker: () => _pickSticker(context),
+            onExportHtml: () => _export(context, note, ExportService.toHtml),
+            onExportPdf: () => _export(context, note, ExportService.toPdf),
+          ),
+          if (_findVisible) _findBar(context),
+          const Divider(height: 1),
+          Expanded(child: _body(context, note)),
+          _BacklinksPanel(note: note),
+          _AttachmentsPanel(note: note),
+        ],
+      ),
+    );
+  }
+
+  Widget _findBar(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _findController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'Find',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _replaceController,
+              decoration: const InputDecoration(
+                hintText: 'Replace with',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: () {
+              final find = _findController.text;
+              if (find.isEmpty) return;
+              final count = find.allMatches(_textController.text).length;
+              if (count > 0) {
+                _setBody(
+                  _textController.text
+                      .replaceAll(find, _replaceController.text),
+                );
+              }
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Replaced $count occurrence(s)')),
+              );
+            },
+            child: const Text('Replace all'),
+          ),
+          IconButton(
+            tooltip: 'Close (Ctrl+H)',
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: () => setState(() => _findVisible = false),
+          ),
+        ],
+      ),
     );
   }
 
@@ -301,7 +394,7 @@ class _EditorPaneState extends State<EditorPane> {
 
   Widget _preview(Note note) {
     // Render wiki-links as their display text for now (milestone 1).
-    final rendered = note.body.replaceAllMapped(
+    final rendered = Checklist.linkify(note.body).replaceAllMapped(
       RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]'),
       (m) => '**${(m.group(2) ?? m.group(1))!.trim()}**',
     );
@@ -309,6 +402,13 @@ class _EditorPaneState extends State<EditorPane> {
       data: rendered,
       selectable: true,
       padding: const EdgeInsets.all(16),
+      onTapLink: (text, href, title) {
+        if (href == null || !href.startsWith('checkbox:')) return;
+        final line = int.tryParse(href.substring('checkbox:'.length));
+        if (line == null) return;
+        final toggled = Checklist.toggleLine(note.body, line);
+        if (toggled != null) _setBody(toggled);
+      },
       sizedImageBuilder: (config) {
         final src = config.uri.toString();
         if (src.startsWith('assets/')) {
@@ -488,24 +588,12 @@ class _Toolbar extends StatelessWidget {
   final VoidCallback onExportPdf;
 
   void _wrap(String left, String right) {
-    final sel = controller.selection;
-    final text = controller.text;
-    if (!sel.isValid) return;
-    final selected = sel.textInside(text);
-    final replaced = '$left$selected$right';
-    controller.value = controller.value.replaced(sel, replaced);
+    EditorOps.wrapSelection(controller, left, right);
     onChanged();
   }
 
   void _prefixLine(String prefix) {
-    final sel = controller.selection;
-    if (!sel.isValid) return;
-    final start = controller.text.lastIndexOf('\n', sel.start - 1) + 1;
-    final newText = controller.text.replaceRange(start, start, prefix);
-    controller.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection.collapsed(offset: sel.end + prefix.length),
-    );
+    EditorOps.prefixLine(controller, prefix);
     onChanged();
   }
 

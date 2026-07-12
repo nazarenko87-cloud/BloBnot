@@ -32,6 +32,7 @@ class VaultController extends ChangeNotifier {
   bool _locked = false;
   Map<String, DateTime> _reminders = {};
   Set<String> _pinned = {};
+  List<String> _projects = [];
 
   /// Title of a reminder that just came due — the UI shows it and calls
   /// [dismissDueReminder]. Null when nothing is due.
@@ -48,6 +49,8 @@ class VaultController extends ChangeNotifier {
 
   DateTime? reminderFor(String title) => _reminders[title];
   bool isPinned(String title) => _pinned.contains(title);
+  List<String> get projects => List.unmodifiable(_projects);
+  String projectOf(Note note) => _storage?.projectOf(note) ?? '';
 
   /// Notes whose body wiki-links to [title].
   List<Note> backlinksTo(String title) => _notes
@@ -56,6 +59,7 @@ class VaultController extends ChangeNotifier {
 
   Timer? _saveTimer;
   Timer? _reminderTimer;
+  bool _dirty = false;
 
   /// On launch: engage the lock if a password is set, then reopen the
   /// last-used vault if it still exists.
@@ -97,6 +101,7 @@ class VaultController extends ChangeNotifier {
     _settings = await _settingsStore!.load();
     _reminders = await _reminderStore!.load();
     _pinned = await _pinnedStore!.load();
+    _projects = await _storage!.listProjects();
     _notes = await _storage!.loadNotes();
     _current = _notes.isNotEmpty ? _notes.first : null;
     await AppSettings.setLastVault(root);
@@ -111,6 +116,7 @@ class VaultController extends ChangeNotifier {
 
   Future<void> reload() async {
     if (_storage == null) return;
+    _projects = await _storage!.listProjects();
     _notes = await _storage!.loadNotes();
     if (_current != null) {
       _current = _notes.firstWhere(
@@ -139,6 +145,7 @@ class VaultController extends ChangeNotifier {
     _current = _current!.copyWith(body: body);
     final idx = _notes.indexWhere((n) => n.path == _current!.path);
     if (idx >= 0) _notes[idx] = _current!;
+    _dirty = true;
     notifyListeners();
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 800), _flushPendingSave);
@@ -146,7 +153,8 @@ class VaultController extends ChangeNotifier {
 
   Future<void> _flushPendingSave() async {
     _saveTimer?.cancel();
-    if (_storage == null || _current == null) return;
+    if (!_dirty || _storage == null || _current == null) return;
+    _dirty = false;
     final saved = await _storage!.write(_current!);
     _current = saved;
     final idx = _notes.indexWhere((n) => n.path == saved.path);
@@ -173,6 +181,12 @@ class VaultController extends ChangeNotifier {
     if (_current?.path == note.path) {
       _current = _notes.isNotEmpty ? _notes.first : null;
     }
+    notifyListeners();
+  }
+
+  Future<void> createProject(String name) async {
+    await _storage!.createProject(name);
+    _projects = await _storage!.listProjects();
     notifyListeners();
   }
 

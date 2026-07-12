@@ -1,5 +1,6 @@
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../main.dart' show kAppVersion;
@@ -34,7 +35,12 @@ class _HomePageState extends State<HomePage> {
       return Scaffold(body: _NoVault(onOpen: () => _pickVault(context)));
     }
 
-    return Scaffold(
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyP, control: true): () =>
+            _quickSwitcher(context),
+      },
+      child: Scaffold(
       appBar: AppBar(
         titleSpacing: 12,
         title: Row(
@@ -97,6 +103,63 @@ class _HomePageState extends State<HomePage> {
           Expanded(child: _editorAndGraph(context)),
         ],
       ),
+      ),
+    );
+  }
+
+  Future<void> _quickSwitcher(BuildContext context) async {
+    final controller = context.read<VaultController>();
+    final ctrl = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        contentPadding: const EdgeInsets.all(12),
+        content: StatefulBuilder(
+          builder: (context, setDialogState) {
+            final q = ctrl.text.toLowerCase();
+            final matches = controller.notes
+                .where((n) => n.title.toLowerCase().contains(q))
+                .take(8)
+                .toList();
+            return SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: ctrl,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Jump to note…',
+                      prefixIcon: Icon(Icons.bolt),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setDialogState(() {}),
+                    onSubmitted: (_) {
+                      if (matches.isNotEmpty) {
+                        controller.select(matches.first);
+                        Navigator.pop(context);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  for (final n in matches)
+                    ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.description_outlined,
+                          size: 16),
+                      title: Text(n.title),
+                      onTap: () {
+                        controller.select(n);
+                        Navigator.pop(context);
+                      },
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -154,34 +217,62 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _newNote(BuildContext context) async {
-    final title = await _promptTitle(context);
-    if (title == null || title.isEmpty || !context.mounted) return;
-    await context.read<VaultController>().createNote(title);
-  }
-
-  Future<String?> _promptTitle(BuildContext context) {
+    final controller = context.read<VaultController>();
     final ctrl = TextEditingController();
-    return showDialog<String>(
+    String project = '';
+    final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('New note'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Note title'),
-          onSubmitted: (v) => Navigator.pop(context, v.trim()),
+        content: StatefulBuilder(
+          builder: (context, setDialogState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                decoration: const InputDecoration(hintText: 'Note title'),
+                onSubmitted: (_) => Navigator.pop(context, true),
+              ),
+              if (controller.projects.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: project,
+                  decoration: const InputDecoration(
+                    labelText: 'Project',
+                    isDense: true,
+                  ),
+                  items: [
+                    const DropdownMenuItem(
+                      value: '',
+                      child: Text('(vault root)'),
+                    ),
+                    for (final name in controller.projects)
+                      DropdownMenuItem(value: name, child: Text(name)),
+                  ],
+                  onChanged: (v) => setDialogState(() => project = v ?? ''),
+                ),
+              ],
+            ],
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+            onPressed: () => Navigator.pop(context, true),
             child: const Text('Create'),
           ),
         ],
       ),
+    );
+    final title = ctrl.text.trim();
+    if (ok != true || title.isEmpty || !context.mounted) return;
+    await controller.createNote(
+      title,
+      subfolder: project.isEmpty ? null : project,
     );
   }
 

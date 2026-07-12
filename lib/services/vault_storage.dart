@@ -73,6 +73,33 @@ class VaultStorage {
     if (await f.exists()) await f.delete();
   }
 
+  static const _reservedDirs = {'_archive', 'attachments', '.history'};
+
+  /// Project = first-level subfolder of the vault (minus reserved ones).
+  Future<List<String>> listProjects() async {
+    if (!exists) return [];
+    final names = <String>[];
+    await for (final e in _dir.list(followLinks: false)) {
+      if (e is! Directory) continue;
+      final name = p.basename(e.path);
+      if (name.startsWith('.') || _reservedDirs.contains(name)) continue;
+      names.add(name);
+    }
+    names.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return names;
+  }
+
+  Future<void> createProject(String name) async {
+    await Directory(p.join(root, name)).create(recursive: true);
+  }
+
+  /// Project folder a note belongs to ('' when at the vault root).
+  String projectOf(Note note) {
+    final rel = p.relative(note.path, from: root);
+    final parts = p.split(rel);
+    return parts.length > 1 ? parts.first : '';
+  }
+
   Directory get _archiveDir => Directory(p.join(root, '_archive'));
 
   /// Soft delete: move the note file into `{vault}/_archive/`.
