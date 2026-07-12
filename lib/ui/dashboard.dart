@@ -68,6 +68,7 @@ class DashboardView extends StatelessWidget {
             pinned: controller.isPinned(note.title),
             hasReminder: controller.reminderFor(note.title) != null ||
                 LineReminders.parseAll(note.body).isNotEmpty,
+            glyph: controller.glyphFor(note),
             onTap: () {
               controller.select(note);
               onOpenNote();
@@ -200,6 +201,7 @@ class _NoteCard extends StatelessWidget {
     required this.project,
     required this.pinned,
     required this.hasReminder,
+    required this.glyph,
     required this.onTap,
   });
 
@@ -207,6 +209,7 @@ class _NoteCard extends StatelessWidget {
   final String project;
   final bool pinned;
   final bool hasReminder;
+  final String? glyph;
   final VoidCallback onTap;
 
   String get _snippet {
@@ -234,6 +237,10 @@ class _NoteCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
+                    if (glyph != null) ...[
+                      Text(glyph!, style: const TextStyle(fontSize: 14)),
+                      const SizedBox(width: 4),
+                    ],
                     Expanded(
                       child: Text(
                         note.title,

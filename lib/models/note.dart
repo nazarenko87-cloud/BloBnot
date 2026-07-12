@@ -40,6 +40,25 @@ class Note {
       .where((s) => s.isNotEmpty)
       .toSet();
 
+  static final _tagPattern = RegExp(r'(?:^|\s)#([\wЀ-ӿ-]+)');
+
+  /// `#tags` present in the body (lower-cased, de-duplicated).
+  List<String> get tags => _tagPattern
+      .allMatches(body)
+      .map((m) => m.group(1)!.toLowerCase())
+      .toSet()
+      .toList();
+
+  static final _boxPattern = RegExp(r'^\s*[-*] \[( |x|X)\]', multiLine: true);
+
+  /// Checklist completion 0..1, or null when the note has no checkboxes.
+  double? get checklistProgress {
+    final boxes = _boxPattern.allMatches(body).toList();
+    if (boxes.isEmpty) return null;
+    final done = boxes.where((m) => m.group(1)!.toLowerCase() == 'x').length;
+    return done / boxes.length;
+  }
+
   static String titleFromPath(String p) {
     final name = p.split(Platform.pathSeparator).last;
     return name.toLowerCase().endsWith('.md')

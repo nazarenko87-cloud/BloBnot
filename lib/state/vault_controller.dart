@@ -4,8 +4,10 @@ import 'package:flutter/foundation.dart';
 
 import '../models/note.dart';
 import '../services/password_store.dart';
+import '../services/glyph_store.dart';
 import '../services/pinned_store.dart';
 import '../services/project_colors_store.dart';
+import '../services/project_order_store.dart';
 import '../services/reminder_store.dart';
 import '../services/settings_store.dart';
 import '../services/vault_storage.dart';
@@ -37,6 +39,11 @@ class VaultController extends ChangeNotifier {
   List<String> _projects = [];
   Map<String, int> _projectColors = {};
   ProjectColorsStore? _projectColorsStore;
+  GlyphStore? _glyphStore;
+  Map<String, String> _tagGlyphs = {};
+  Map<String, String> _glyphOverrides = {};
+  ProjectOrderStore? _projectOrderStore;
+  List<String> _projectOrder = [];
 
   /// Title of a reminder that just came due — the UI shows it and calls
   /// [dismissDueReminder]. Null when nothing is due.
@@ -57,9 +64,53 @@ class VaultController extends ChangeNotifier {
 
   DateTime? reminderFor(String title) => _reminders[title];
   bool isPinned(String title) => _pinned.contains(title);
-  List<String> get projects => List.unmodifiable(_projects);
+  List<String> get projects => List.unmodifiable(
+        ProjectOrderStore.applyOrder(_projects, _projectOrder),
+      );
   String projectOf(Note note) => _storage?.projectOf(note) ?? '';
   int? colorOf(String project) => _projectColors[project];
+
+  /// Glyph medallion for a note: manual override wins, then the first
+  /// body tag that has a mapped glyph, else null (letter fallback in UI).
+  String? glyphFor(Note note) {
+    final manual = _glyphOverrides[note.title];
+    if (manual != null) return manual;
+    for (final tag in note.tags) {
+      final g = _tagGlyphs[tag];
+      if (g != null) return g;
+    }
+    return null;
+  }
+
+  Future<void> setNoteGlyph(String title, String? glyph) async {
+    if (glyph == null || glyph.isEmpty) {
+      _glyphOverrides.remove(title);
+    } else {
+      _glyphOverrides[title] = glyph;
+    }
+    notifyListeners();
+    await _glyphStore?.saveOverrides(_glyphOverrides);
+  }
+
+  Future<void> setTagGlyph(String tag, String? glyph) async {
+    if (glyph == null || glyph.isEmpty) {
+      _tagGlyphs.remove(tag.toLowerCase());
+    } else {
+      _tagGlyphs[tag.toLowerCase()] = glyph;
+    }
+    notifyListeners();
+    await _glyphStore?.saveTagGlyphs(_tagGlyphs);
+  }
+
+  /// [newIndex] is already adjusted for the removed item (onReorderItem).
+  Future<void> reorderProjects(int oldIndex, int newIndex) async {
+    final ordered = [...projects];
+    final moved = ordered.removeAt(oldIndex);
+    ordered.insert(newIndex, moved);
+    _projectOrder = ordered;
+    notifyListeners();
+    await _projectOrderStore?.save(_projectOrder);
+  }
 
   Future<void> setProjectColor(String project, int? colorIndex) async {
     if (colorIndex == null) {
@@ -125,10 +176,15 @@ class VaultController extends ChangeNotifier {
     _reminderStore = ReminderStore(root);
     _pinnedStore = PinnedStore(root);
     _projectColorsStore = ProjectColorsStore(root);
+    _glyphStore = GlyphStore(root);
+    _projectOrderStore = ProjectOrderStore(root);
     _settings = await _settingsStore!.load();
     _reminders = await _reminderStore!.load();
     _pinned = await _pinnedStore!.load();
     _projectColors = await _projectColorsStore!.load();
+    _tagGlyphs = await _glyphStore!.loadTagGlyphs();
+    _glyphOverrides = await _glyphStore!.loadOverrides();
+    _projectOrder = await _projectOrderStore!.load();
     _projects = await _storage!.listProjects();
     _notes = await _storage!.loadNotes();
     _current = _notes.isNotEmpty ? _notes.first : null;

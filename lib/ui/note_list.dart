@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../models/note.dart';
 import '../state/vault_controller.dart';
+import 'glyph_avatar.dart';
 
 class NoteList extends StatefulWidget {
   const NoteList({super.key, required this.onNew});
@@ -40,6 +41,7 @@ final ButtonStyle _compactButton = IconButton.styleFrom(
 class _NoteListState extends State<NoteList> {
   String _query = '';
   _Sort _sort = _Sort.name;
+  String? _glyphFilter;
 
   int _compare(Note a, Note b) => switch (_sort) {
         _Sort.name =>
@@ -56,6 +58,9 @@ class _NoteListState extends State<NoteList> {
             _query.isEmpty ||
             n.title.toLowerCase().contains(_query.toLowerCase()) ||
             n.body.toLowerCase().contains(_query.toLowerCase()))
+        .where(
+          (n) => _glyphFilter == null || controller.glyphFor(n) == _glyphFilter,
+        )
         .toList()
       ..sort(_compare);
     final pinned =
@@ -120,6 +125,17 @@ class _NoteListState extends State<NoteList> {
             onChanged: (v) => setState(() => _query = v),
           ),
         ),
+        if (_glyphFilter != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: InputChip(
+                label: Text('Glyph: $_glyphFilter'),
+                onDeleted: () => setState(() => _glyphFilter = null),
+              ),
+            ),
+          ),
         const SizedBox(height: 8),
         Expanded(
           child: ListView(
@@ -129,39 +145,51 @@ class _NoteListState extends State<NoteList> {
                 for (final note in pinned) _tile(context, controller, note),
                 const Divider(height: 8),
               ],
-              for (final e in byProject.entries)
-                ExpansionTile(
-                  dense: true,
-                  initiallyExpanded: true,
-                  leading: Icon(
-                    Icons.folder,
-                    size: 18,
-                    color: controller.colorOf(e.key) != null
-                        ? kProjectColors[controller.colorOf(e.key)! %
-                            kProjectColors.length]
-                        : Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.5),
-                  ),
-                  title: Text(
-                    '${e.key}  ${e.value.length}',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+              ReorderableListView(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                buildDefaultDragHandles: false,
+                onReorderItem: controller.reorderProjects,
+                children: [
+                  for (final (i, e) in byProject.entries.indexed)
+                    ExpansionTile(
+                      key: ValueKey('project-${e.key}'),
+                      dense: true,
+                      initiallyExpanded: true,
+                      leading: ReorderableDragStartListener(
+                        index: i,
+                        child: Icon(
+                          Icons.folder,
+                          size: 18,
+                          color: controller.colorOf(e.key) != null
+                              ? kProjectColors[controller.colorOf(e.key)! %
+                                  kProjectColors.length]
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withValues(alpha: 0.5),
+                        ),
+                      ),
+                      title: Text(
+                        '${e.key}  ${e.value.length}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      trailing: IconButton(
+                        tooltip: 'Project colour',
+                        style: _compactButton,
+                        icon: const Icon(Icons.palette_outlined, size: 16),
+                        onPressed: () => _pickColor(context, e.key),
+                      ),
+                      children: [
+                        for (final note in e.value)
+                          _tile(context, controller, note),
+                      ],
                     ),
-                  ),
-                  trailing: IconButton(
-                    tooltip: 'Project colour',
-                    style: _compactButton,
-                    icon: const Icon(Icons.palette_outlined, size: 16),
-                    onPressed: () => _pickColor(context, e.key),
-                  ),
-                  children: [
-                    for (final note in e.value)
-                      _tile(context, controller, note),
-                  ],
-                ),
+                ],
+              ),
               for (final note in rootNotes) _tile(context, controller, note),
             ],
           ),
@@ -177,16 +205,71 @@ class _NoteListState extends State<NoteList> {
   }
 
   Widget _tile(BuildContext context, VaultController controller, Note note) {
+    final glyph = controller.glyphFor(note);
     return _NoteTile(
       note: note,
       selected: controller.current?.path == note.path,
       hasReminder: controller.reminderFor(note.title) != null,
       pinned: controller.isPinned(note.title),
+      glyph: glyph,
+      onGlyphTap: glyph == null
+          ? null
+          : () => setState(
+                () => _glyphFilter = _glyphFilter == glyph ? null : glyph,
+              ),
       onTap: () => controller.select(note),
       onPin: () => controller.togglePin(note.title),
       onArchive: () => controller.archiveNote(note),
+      onSetGlyph: () => _setGlyph(context, note),
       onDelete: () => _confirmDelete(context, note),
     );
+  }
+
+  Future<void> _setGlyph(BuildContext context, Note note) async {
+    final controller = context.read<VaultController>();
+    final ctrl =
+        TextEditingController(text: controller.glyphFor(note) ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Glyph for "${note.title}"'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              maxLength: 4,
+              decoration: const InputDecoration(
+                hintText: 'Paste an emoji, e.g. 🚀',
+              ),
+            ),
+            Wrap(
+              spacing: 6,
+              children: [
+                for (final e in ['📌', '🚀', '💡', '📞', '💰', '🔥', '⭐', '🧠'])
+                  InkWell(
+                    onTap: () => Navigator.pop(context, e),
+                    child: Text(e, style: const TextStyle(fontSize: 22)),
+                  ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, ''),
+            child: const Text('Clear'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (result == null) return;
+    await controller.setNoteGlyph(note.title, result.isEmpty ? null : result);
   }
 
   Future<void> _pickColor(BuildContext context, String project) async {
@@ -361,9 +444,12 @@ class _NoteTile extends StatelessWidget {
     required this.selected,
     required this.hasReminder,
     required this.pinned,
+    required this.glyph,
+    required this.onGlyphTap,
     required this.onTap,
     required this.onPin,
     required this.onArchive,
+    required this.onSetGlyph,
     required this.onDelete,
   });
 
@@ -371,9 +457,12 @@ class _NoteTile extends StatelessWidget {
   final bool selected;
   final bool hasReminder;
   final bool pinned;
+  final String? glyph;
+  final VoidCallback? onGlyphTap;
   final VoidCallback onTap;
   final VoidCallback onPin;
   final VoidCallback onArchive;
+  final VoidCallback onSetGlyph;
   final VoidCallback onDelete;
 
   @override
@@ -383,14 +472,7 @@ class _NoteTile extends StatelessWidget {
       dense: true,
       selected: selected,
       selectedTileColor: accent.withValues(alpha: 0.12),
-      leading: CircleAvatar(
-        radius: 14,
-        backgroundColor: accent.withValues(alpha: 0.2),
-        child: Text(
-          note.title.isEmpty ? '?' : note.title.characters.first.toUpperCase(),
-          style: TextStyle(fontSize: 12, color: accent),
-        ),
-      ),
+      leading: GlyphAvatar(note: note, glyph: glyph, onTap: onGlyphTap),
       title: Row(
         children: [
           Flexible(
@@ -414,6 +496,7 @@ class _NoteTile extends StatelessWidget {
         icon: const Icon(Icons.more_horiz, size: 18),
         onSelected: (v) => switch (v) {
           'pin' => onPin(),
+          'glyph' => onSetGlyph(),
           'archive' => onArchive(),
           'delete' => onDelete(),
           _ => null,
@@ -423,6 +506,7 @@ class _NoteTile extends StatelessWidget {
             value: 'pin',
             child: Text(pinned ? 'Unpin' : 'Pin to top'),
           ),
+          const PopupMenuItem(value: 'glyph', child: Text('Set glyph…')),
           const PopupMenuItem(value: 'archive', child: Text('Archive')),
           const PopupMenuItem(value: 'delete', child: Text('Delete')),
         ],

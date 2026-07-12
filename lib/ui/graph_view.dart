@@ -11,6 +11,7 @@ class _Node {
   _Node(this.title, this.pathByTitle);
   final String title;
   final String? pathByTitle;
+  String? glyph;
   Offset pos = Offset.zero;
   Offset vel = Offset.zero;
   bool pinned = false;
@@ -128,6 +129,14 @@ class _GraphViewState extends State<GraphView>
   Widget build(BuildContext context) {
     final controller = context.watch<VaultController>();
     _rebuildIfNeeded(controller.notes);
+    for (final node in _nodes) {
+      for (final n in controller.notes) {
+        if (n.title == node.title) {
+          node.glyph = controller.glyphFor(n);
+          break;
+        }
+      }
+    }
     final accent = Theme.of(context).colorScheme.primary;
     final currentTitle = controller.current?.title;
 
@@ -226,6 +235,16 @@ class _GraphPainter extends CustomPainter {
         r,
         Paint()..color = isCurrent ? accent : accent.withValues(alpha: 0.8),
       );
+      if (node.glyph != null) {
+        final gp = TextPainter(
+          text: TextSpan(
+            text: node.glyph,
+            style: TextStyle(fontSize: r * 1.1),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        gp.paint(canvas, node.pos - Offset(gp.width / 2, gp.height / 2));
+      }
       final tp = TextPainter(
         text: TextSpan(
           text: node.title,
