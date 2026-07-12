@@ -3,79 +3,120 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../models/note.dart';
+import 'pulse.dart';
 
-/// Note medallion: emoji glyph (or first letter), with a progress ring when
-/// the note contains a checklist (v1.3 behaviour).
+/// Note medallion: emoji glyph (or first letter) inside a fixed 34×34 box so
+/// it never overflows its list row. When the note contains a checklist the
+/// medallion shows task status two ways (v1.3 behaviour):
+/// - a progress ring around the rim, and
+/// - a bottom-up fill tint proportional to completion.
+/// [pulse] adds a glowing pulse (active reminder).
 class GlyphAvatar extends StatelessWidget {
   const GlyphAvatar({
     super.key,
     required this.note,
     required this.glyph,
-    this.radius = 14,
+    this.pulse = false,
     this.onTap,
   });
 
   final Note note;
   final String? glyph;
-  final double radius;
+  final bool pulse;
   final VoidCallback? onTap;
+
+  static const double _box = 34;
 
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
     final progress = note.checklistProgress;
 
-    Widget avatar = CircleAvatar(
-      radius: radius,
-      backgroundColor: accent.withValues(alpha: 0.2),
-      child: Text(
-        glyph ??
-            (note.title.isEmpty
-                ? '?'
-                : note.title.characters.first.toUpperCase()),
-        style: TextStyle(
-          fontSize: glyph != null ? radius : radius * 0.85,
-          color: accent,
+    Widget avatar = CustomPaint(
+      painter: _MedallionPainter(progress: progress, color: accent),
+      child: Center(
+        child: Text(
+          glyph ??
+              (note.title.isEmpty
+                  ? '?'
+                  : note.title.characters.first.toUpperCase()),
+          style: TextStyle(fontSize: glyph != null ? 15 : 13, color: accent),
         ),
       ),
     );
 
-    if (progress != null) {
-      avatar = CustomPaint(
-        painter: _RingPainter(progress: progress, color: accent),
-        child: Padding(padding: const EdgeInsets.all(2), child: avatar),
+    avatar = SizedBox(width: _box, height: _box, child: avatar);
+
+    if (onTap != null) {
+      avatar = InkWell(
+        borderRadius: BorderRadius.circular(_box),
+        onTap: onTap,
+        child: avatar,
       );
     }
 
-    return onTap == null
-        ? avatar
-        : InkWell(borderRadius: BorderRadius.circular(99), onTap: onTap, child: avatar);
+    return Pulse(enabled: pulse, child: avatar);
   }
 }
 
-class _RingPainter extends CustomPainter {
-  _RingPainter({required this.progress, required this.color});
+class _MedallionPainter extends CustomPainter {
+  _MedallionPainter({required this.progress, required this.color});
 
-  final double progress;
+  final double? progress;
   final Color color;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final track = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = color.withValues(alpha: 0.15);
-    final arc = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..strokeCap = StrokeCap.round
-      ..color = color;
-    canvas.drawArc(rect.deflate(1), 0, 2 * pi, false, track);
-    canvas.drawArc(rect.deflate(1), -pi / 2, 2 * pi * progress, false, arc);
+    final center = size.center(Offset.zero);
+    final r = size.shortestSide / 2 - 2;
+
+    // Base disc.
+    canvas.drawCircle(
+      center,
+      r,
+      Paint()..color = color.withValues(alpha: 0.16),
+    );
+
+    if (progress != null) {
+      // Bottom-up completion fill.
+      final fillHeight = 2 * r * progress!.clamp(0.0, 1.0);
+      canvas.save();
+      canvas.clipPath(
+        Path()..addOval(Rect.fromCircle(center: center, radius: r)),
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(
+          center.dx - r,
+          center.dy + r - fillHeight,
+          2 * r,
+          fillHeight,
+        ),
+        Paint()..color = color.withValues(alpha: 0.30),
+      );
+      canvas.restore();
+
+      // Progress ring.
+      final track = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.4
+        ..color = color.withValues(alpha: 0.18);
+      final arc = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.4
+        ..strokeCap = StrokeCap.round
+        ..color = color;
+      canvas.drawCircle(center, r, track);
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: r),
+        -pi / 2,
+        2 * pi * progress!,
+        false,
+        arc,
+      );
+    }
   }
 
   @override
-  bool shouldRepaint(covariant _RingPainter old) =>
+  bool shouldRepaint(covariant _MedallionPainter old) =>
       old.progress != progress || old.color != color;
 }

@@ -283,6 +283,26 @@ class VaultController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Delete a project folder; its notes go to the archive first.
+  Future<void> deleteProject(String name) async {
+    await _flushPendingSave();
+    await _storage!.deleteProject(name);
+    _projectColors.remove(name);
+    _projectOrder.remove(name);
+    await _projectColorsStore?.save(_projectColors);
+    await _projectOrderStore?.save(_projectOrder);
+    await reload();
+    if (_current != null && !_notes.any((n) => n.path == _current!.path)) {
+      _current = _notes.isNotEmpty ? _notes.first : null;
+      notifyListeners();
+    }
+  }
+
+  /// True when the note has an active note-level or line reminder.
+  bool hasAnyReminder(Note note) =>
+      _reminders.containsKey(note.title) ||
+      LineReminders.parseAll(note.body).isNotEmpty;
+
   Future<void> togglePin(String title) async {
     if (!_pinned.remove(title)) _pinned.add(title);
     notifyListeners();

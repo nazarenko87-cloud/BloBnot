@@ -10,6 +10,7 @@ import 'editor_pane.dart';
 import 'graph_view.dart';
 import 'lock_screen.dart';
 import 'note_list.dart';
+import 'settings_dialog.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -74,28 +75,16 @@ class _HomePageState extends State<HomePage> {
             ),
             onPressed: () => setState(() => _showList = !_showList),
           ),
-          IconButton(
-            tooltip: 'Toggle theme',
-            icon: const Icon(Icons.brightness_6),
-            onPressed: () => controller.setTheme(
-              mode: controller.settings.themeMode == 'light' ? 'dark' : 'light',
-            ),
-          ),
-          IconButton(
-            tooltip: 'Open vault…',
-            icon: const Icon(Icons.folder_open),
-            onPressed: () => _pickVault(context),
-          ),
           PopupMenuButton<String>(
             tooltip: 'Menu',
             icon: const Icon(Icons.more_vert),
             onSelected: (v) => switch (v) {
-              'password' => _passwordDialog(context),
+              'settings' => showSettingsDialog(context),
               'about' => _showAbout(context),
               _ => null,
             },
             itemBuilder: (context) => const [
-              PopupMenuItem(value: 'password', child: Text('Password…')),
+              PopupMenuItem(value: 'settings', child: Text('Settings…')),
               PopupMenuItem(value: 'about', child: Text('About')),
             ],
           ),
@@ -292,76 +281,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<void> _passwordDialog(BuildContext context) async {
-    final controller = context.read<VaultController>();
-    final store = controller.passwordStore;
-    final has = await store.hasPassword();
-    if (!context.mounted) return;
-
-    final currentCtrl = TextEditingController();
-    final newCtrl = TextEditingController();
-
-    final action = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(has ? 'Change password' : 'Set password'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (has)
-              TextField(
-                controller: currentCtrl,
-                obscureText: true,
-                decoration:
-                    const InputDecoration(labelText: 'Current password'),
-              ),
-            TextField(
-              controller: newCtrl,
-              obscureText: true,
-              autofocus: !has,
-              decoration: const InputDecoration(
-                labelText: 'New password (empty = remove)',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, 'save'),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    if (action != 'save' || !context.mounted) return;
-
-    if (has && !await store.verify(currentCtrl.text)) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Wrong current password')),
-        );
-      }
-      return;
-    }
-    if (newCtrl.text.isEmpty) {
-      await store.clearPassword();
-    } else {
-      await store.setPassword(newCtrl.text);
-    }
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            newCtrl.text.isEmpty ? 'Password removed' : 'Password set',
-          ),
-        ),
-      );
-    }
-  }
 
   void _showAbout(BuildContext context) {
     showDialog<void>(

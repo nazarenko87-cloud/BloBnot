@@ -435,6 +435,21 @@ class _EditorPaneState extends State<EditorPane> {
                       border: InputBorder.none,
                       isCollapsed: true,
                     ),
+                    // Right-click menu gains "Reminder on line…".
+                    contextMenuBuilder: (context, editableTextState) =>
+                        AdaptiveTextSelectionToolbar.buttonItems(
+                      anchors: editableTextState.contextMenuAnchors,
+                      buttonItems: [
+                        ...editableTextState.contextMenuButtonItems,
+                        ContextMenuButtonItem(
+                          label: 'Reminder on line…',
+                          onPressed: () {
+                            ContextMenuController.removeAny();
+                            _insertLineReminder(context);
+                          },
+                        ),
+                      ],
+                    ),
                     onChanged: (v) => controller.editCurrentBody(v),
                   ),
                 ),
@@ -536,26 +551,61 @@ class _AttachmentsPanel extends StatelessWidget {
           ),
           children: [
             for (final name in names)
-              ListTile(
-                dense: true,
-                leading: const Icon(Icons.attach_file, size: 18),
-                title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: 'Open',
-                      icon: const Icon(Icons.open_in_new, size: 18),
-                      onPressed: () => store.open(name),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 3,
+                ),
+                child: Material(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(8),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => store.open(name),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.attach_file,
+                            size: 20,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color:
+                                    Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Open',
+                            icon: const Icon(Icons.open_in_new, size: 18),
+                            color: Theme.of(context).colorScheme.primary,
+                            onPressed: () => store.open(name),
+                          ),
+                          IconButton(
+                            tooltip: 'Delete file',
+                            icon: const Icon(Icons.delete_outline, size: 18),
+                            onPressed: () =>
+                                _confirmDelete(context, store, name),
+                          ),
+                        ],
+                      ),
                     ),
-                    IconButton(
-                      tooltip: 'Delete file',
-                      icon: const Icon(Icons.delete_outline, size: 18),
-                      onPressed: () => _confirmDelete(context, store, name),
-                    ),
-                  ],
+                  ),
                 ),
               ),
+            const SizedBox(height: 6),
           ],
         ),
       ],
@@ -659,6 +709,7 @@ class _Toolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
     Widget btn(IconData icon, String tip, VoidCallback onTap) => IconButton(
           tooltip: tip,
           icon: Icon(icon, size: 18),
@@ -669,7 +720,13 @@ class _Toolbar extends StatelessWidget {
       child: Row(
         children: [
           const SizedBox(width: 8),
-          btn(Icons.link, 'Wiki link', () => _wrap('[[', ']]')),
+          // Wiki link — the flagship action, accented like Attach file.
+          IconButton.filledTonal(
+            tooltip: 'Wiki link',
+            icon: Icon(Icons.link, size: 22, color: accent),
+            onPressed: () => _wrap('[[', ']]'),
+          ),
+          const SizedBox(width: 4),
           btn(Icons.format_bold, 'Bold', () => _wrap('**', '**')),
           btn(Icons.format_italic, 'Italic', () => _wrap('*', '*')),
           btn(

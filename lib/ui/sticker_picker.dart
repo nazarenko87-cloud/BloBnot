@@ -42,7 +42,14 @@ Future<String?> showStickerPicker(BuildContext context) {
                     Navigator.pop(context, 'assets/stickers/$name.png'),
                 child: Tooltip(
                   message: name,
-                  child: Image.asset('assets/stickers/$name.png'),
+                  // Superellipse (squircle) tiles.
+                  child: ClipRSuperellipse(
+                    borderRadius: BorderRadius.circular(22),
+                    child: Image.asset(
+                      'assets/stickers/$name.png',
+                      fit: BoxFit.cover,
+                    ),
+                  ),
                 ),
               ),
           ],

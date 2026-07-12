@@ -93,6 +93,19 @@ class VaultStorage {
     await Directory(p.join(root, name)).create(recursive: true);
   }
 
+  /// Delete a project folder. Its notes are archived first (soft delete),
+  /// then the folder with any leftovers is removed.
+  Future<void> deleteProject(String name) async {
+    final dir = Directory(p.join(root, name));
+    if (!dir.existsSync()) return;
+    await for (final e in dir.list(recursive: true, followLinks: false)) {
+      if (e is File && e.path.toLowerCase().endsWith('.md')) {
+        await archive(await _readFile(e));
+      }
+    }
+    await dir.delete(recursive: true);
+  }
+
   /// Project folder a note belongs to ('' when at the vault root).
   String projectOf(Note note) {
     final rel = p.relative(note.path, from: root);

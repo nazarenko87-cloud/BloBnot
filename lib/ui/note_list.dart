@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/note.dart';
 import '../state/vault_controller.dart';
 import 'glyph_avatar.dart';
+import 'pulse.dart';
 
 class NoteList extends StatefulWidget {
   const NoteList({super.key, required this.onNew});
@@ -158,16 +159,20 @@ class _NoteListState extends State<NoteList> {
                       initiallyExpanded: true,
                       leading: ReorderableDragStartListener(
                         index: i,
-                        child: Icon(
-                          Icons.folder,
-                          size: 18,
-                          color: controller.colorOf(e.key) != null
-                              ? kProjectColors[controller.colorOf(e.key)! %
-                                  kProjectColors.length]
-                              : Theme.of(context)
-                                  .colorScheme
-                                  .onSurface
-                                  .withValues(alpha: 0.5),
+                        child: Pulse(
+                          enabled: e.value
+                              .any((n) => controller.hasAnyReminder(n)),
+                          child: Icon(
+                            Icons.folder,
+                            size: 18,
+                            color: controller.colorOf(e.key) != null
+                                ? kProjectColors[controller.colorOf(e.key)! %
+                                    kProjectColors.length]
+                                : Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withValues(alpha: 0.5),
+                          ),
                         ),
                       ),
                       title: Text(
@@ -177,11 +182,26 @@ class _NoteListState extends State<NoteList> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      trailing: IconButton(
-                        tooltip: 'Project colour',
+                      trailing: PopupMenuButton<String>(
+                        tooltip: 'Project menu',
                         style: _compactButton,
-                        icon: const Icon(Icons.palette_outlined, size: 16),
-                        onPressed: () => _pickColor(context, e.key),
+                        icon: const Icon(Icons.more_horiz, size: 16),
+                        onSelected: (v) => switch (v) {
+                          'color' => _pickColor(context, e.key),
+                          'delete' => _deleteProject(context, e.key,
+                              e.value.length),
+                          _ => null,
+                        },
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(
+                            value: 'color',
+                            child: Text('Colour…'),
+                          ),
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Delete project'),
+                          ),
+                        ],
                       ),
                       children: [
                         for (final note in e.value)
@@ -209,7 +229,7 @@ class _NoteListState extends State<NoteList> {
     return _NoteTile(
       note: note,
       selected: controller.current?.path == note.path,
-      hasReminder: controller.reminderFor(note.title) != null,
+      hasReminder: controller.hasAnyReminder(note),
       pinned: controller.isPinned(note.title),
       glyph: glyph,
       onGlyphTap: glyph == null
@@ -270,6 +290,38 @@ class _NoteListState extends State<NoteList> {
     );
     if (result == null) return;
     await controller.setNoteGlyph(note.title, result.isEmpty ? null : result);
+  }
+
+  Future<void> _deleteProject(
+    BuildContext context,
+    String project,
+    int noteCount,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete project "$project"?'),
+        content: Text(
+          noteCount == 0
+              ? 'The empty folder will be removed.'
+              : '$noteCount note(s) inside will be moved to the archive, '
+                  'then the folder will be removed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && context.mounted) {
+      await context.read<VaultController>().deleteProject(project);
+    }
   }
 
   Future<void> _pickColor(BuildContext context, String project) async {
@@ -472,7 +524,12 @@ class _NoteTile extends StatelessWidget {
       dense: true,
       selected: selected,
       selectedTileColor: accent.withValues(alpha: 0.12),
-      leading: GlyphAvatar(note: note, glyph: glyph, onTap: onGlyphTap),
+      leading: GlyphAvatar(
+        note: note,
+        glyph: glyph,
+        pulse: hasReminder,
+        onTap: onGlyphTap,
+      ),
       title: Row(
         children: [
           Flexible(
