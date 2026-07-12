@@ -107,6 +107,7 @@ class _EditorPaneState extends State<EditorPane> {
             onExportHtml: () => _export(context, note, ExportService.toHtml),
             onExportPdf: () => _export(context, note, ExportService.toPdf),
             onLineReminder: () => _insertLineReminder(context),
+            onAiContext: () => _copyAiContext(context, note),
           ),
           if (_findVisible) _findBar(context),
           const Divider(height: 1),
@@ -191,6 +192,27 @@ class _EditorPaneState extends State<EditorPane> {
           SnackBar(content: Text('Export failed: $e')),
         );
       }
+    }
+  }
+
+  /// Copy this note plus every note it wiki-links to as one plain-text block,
+  /// ready to paste into any AI chat (v1.3 "Copy AI context").
+  Future<void> _copyAiContext(BuildContext context, Note note) async {
+    final controller = context.read<VaultController>();
+    final buf = StringBuffer('# ${note.title}\n\n${note.body}\n');
+    for (final title in note.outgoingLinks) {
+      for (final n in controller.notes) {
+        if (n.title == title) {
+          buf.write('\n---\n# ${n.title} (linked)\n\n${n.body}\n');
+          break;
+        }
+      }
+    }
+    await Clipboard.setData(ClipboardData(text: buf.toString()));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('AI context copied to clipboard')),
+      );
     }
   }
 
@@ -613,6 +635,7 @@ class _Toolbar extends StatelessWidget {
     required this.onExportHtml,
     required this.onExportPdf,
     required this.onLineReminder,
+    required this.onAiContext,
   });
 
   final TextEditingController controller;
@@ -622,6 +645,7 @@ class _Toolbar extends StatelessWidget {
   final VoidCallback onExportHtml;
   final VoidCallback onExportPdf;
   final VoidCallback onLineReminder;
+  final VoidCallback onAiContext;
 
   void _wrap(String left, String right) {
     EditorOps.wrapSelection(controller, left, right);
@@ -668,6 +692,7 @@ class _Toolbar extends StatelessWidget {
           btn(Icons.emoji_emotions_outlined, 'Sticker', onSticker),
           btn(Icons.code, 'Export HTML', onExportHtml),
           btn(Icons.picture_as_pdf_outlined, 'Export PDF', onExportPdf),
+          btn(Icons.smart_toy_outlined, 'Copy AI context', onAiContext),
           const SizedBox(width: 4),
           // Prominent, at the very end of the toolbar (per handoff) — and the
           // toolbar scrolls horizontally, so it can never be clipped away.

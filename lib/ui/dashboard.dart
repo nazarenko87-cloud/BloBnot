@@ -45,6 +45,9 @@ class DashboardView extends StatelessWidget {
         ],
         const _Label('All notes'),
         _cards(context, controller, rest),
+        const SizedBox(height: 16),
+        const _Label('Activity'),
+        _Heatmap(notes: notes),
       ],
     );
   }
@@ -71,6 +74,72 @@ class DashboardView extends StatelessWidget {
             },
           ),
       ],
+    );
+  }
+}
+
+/// GitHub-style modification heatmap: 26 weeks × 7 days, coloured by the
+/// number of notes last modified on that day.
+class _Heatmap extends StatelessWidget {
+  const _Heatmap({required this.notes});
+
+  final List<Note> notes;
+
+  static const _weeks = 26;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    final today = DateTime.now();
+    final counts = <DateTime, int>{};
+    for (final n in notes) {
+      final d = DateTime(n.modified.year, n.modified.month, n.modified.day);
+      counts[d] = (counts[d] ?? 0) + 1;
+    }
+    // Grid starts on the Monday `_weeks` weeks back.
+    final start = today
+        .subtract(Duration(days: _weeks * 7 + today.weekday - 1));
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var day = 0; day < 7; day++)
+            Row(
+              children: [
+                for (var week = 0; week <= _weeks; week++)
+                  _cell(
+                    accent,
+                    counts[DateTime(
+                          start.year,
+                          start.month,
+                          start.day + week * 7 + day,
+                        )] ??
+                        0,
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cell(Color accent, int count) {
+    final alpha = switch (count) {
+      0 => 0.06,
+      1 => 0.35,
+      2 => 0.6,
+      _ => 0.95,
+    };
+    return Container(
+      width: 12,
+      height: 12,
+      margin: const EdgeInsets.all(1.5),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: alpha),
+        borderRadius: BorderRadius.circular(2),
+      ),
     );
   }
 }

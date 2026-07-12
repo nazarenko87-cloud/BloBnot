@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../main.dart' show kAppVersion;
+import '../main.dart' show kAppVersion, trayService;
 import '../state/vault_controller.dart';
 import 'dashboard.dart';
 import 'editor_pane.dart';
@@ -182,6 +182,8 @@ class _HomePageState extends State<HomePage> {
     final title = controller.dueReminderTitle;
     if (title == null || _dueDialogShowing) return;
     _dueDialogShowing = true;
+    // Real system toast — visible even when the window is hidden in tray.
+    trayService?.notify('BloBnot — reminder', title);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       await showDialog<void>(

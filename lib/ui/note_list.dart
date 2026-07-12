@@ -14,6 +14,22 @@ class NoteList extends StatefulWidget {
 
 enum _Sort { name, date, size }
 
+/// 12-colour palette for project labels (index saved in project_colors.json).
+const List<Color> kProjectColors = [
+  Color(0xFFE57373),
+  Color(0xFFF06292),
+  Color(0xFFBA68C8),
+  Color(0xFF9575CD),
+  Color(0xFF7986CB),
+  Color(0xFF64B5F6),
+  Color(0xFF4DD0E1),
+  Color(0xFF4DB6AC),
+  Color(0xFF81C784),
+  Color(0xFFDCE775),
+  Color(0xFFFFD54F),
+  Color(0xFFFF8A65),
+];
+
 final ButtonStyle _compactButton = IconButton.styleFrom(
   padding: EdgeInsets.zero,
   minimumSize: const Size(34, 34),
@@ -117,13 +133,29 @@ class _NoteListState extends State<NoteList> {
                 ExpansionTile(
                   dense: true,
                   initiallyExpanded: true,
-                  leading: const Icon(Icons.folder_outlined, size: 18),
+                  leading: Icon(
+                    Icons.folder,
+                    size: 18,
+                    color: controller.colorOf(e.key) != null
+                        ? kProjectColors[controller.colorOf(e.key)! %
+                            kProjectColors.length]
+                        : Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.5),
+                  ),
                   title: Text(
                     '${e.key}  ${e.value.length}',
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
                     ),
+                  ),
+                  trailing: IconButton(
+                    tooltip: 'Project colour',
+                    style: _compactButton,
+                    icon: const Icon(Icons.palette_outlined, size: 16),
+                    onPressed: () => _pickColor(context, e.key),
                   ),
                   children: [
                     for (final note in e.value)
@@ -154,6 +186,43 @@ class _NoteListState extends State<NoteList> {
       onPin: () => controller.togglePin(note.title),
       onArchive: () => controller.archiveNote(note),
       onDelete: () => _confirmDelete(context, note),
+    );
+  }
+
+  Future<void> _pickColor(BuildContext context, String project) async {
+    final controller = context.read<VaultController>();
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Colour for "$project"'),
+        content: Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (var i = 0; i < kProjectColors.length; i++)
+              InkWell(
+                onTap: () {
+                  controller.setProjectColor(project, i);
+                  Navigator.pop(context);
+                },
+                child: CircleAvatar(
+                  radius: 16,
+                  backgroundColor: kProjectColors[i],
+                ),
+              ),
+            InkWell(
+              onTap: () {
+                controller.setProjectColor(project, null);
+                Navigator.pop(context);
+              },
+              child: const CircleAvatar(
+                radius: 16,
+                child: Icon(Icons.clear, size: 16),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

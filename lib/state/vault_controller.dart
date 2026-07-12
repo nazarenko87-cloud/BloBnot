@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../models/note.dart';
 import '../services/password_store.dart';
 import '../services/pinned_store.dart';
+import '../services/project_colors_store.dart';
 import '../services/reminder_store.dart';
 import '../services/settings_store.dart';
 import '../services/vault_storage.dart';
@@ -34,6 +35,8 @@ class VaultController extends ChangeNotifier {
   Map<String, DateTime> _reminders = {};
   Set<String> _pinned = {};
   List<String> _projects = [];
+  Map<String, int> _projectColors = {};
+  ProjectColorsStore? _projectColorsStore;
 
   /// Title of a reminder that just came due — the UI shows it and calls
   /// [dismissDueReminder]. Null when nothing is due.
@@ -56,6 +59,17 @@ class VaultController extends ChangeNotifier {
   bool isPinned(String title) => _pinned.contains(title);
   List<String> get projects => List.unmodifiable(_projects);
   String projectOf(Note note) => _storage?.projectOf(note) ?? '';
+  int? colorOf(String project) => _projectColors[project];
+
+  Future<void> setProjectColor(String project, int? colorIndex) async {
+    if (colorIndex == null) {
+      _projectColors.remove(project);
+    } else {
+      _projectColors[project] = colorIndex;
+    }
+    notifyListeners();
+    await _projectColorsStore?.save(_projectColors);
+  }
 
   /// Notes whose body wiki-links to [title].
   List<Note> backlinksTo(String title) => _notes
@@ -86,6 +100,13 @@ class VaultController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Re-engage the lock (e.g. when hiding to tray) if a password is set.
+  void lockNow() {
+    if (_pwRecord == null) return;
+    _locked = true;
+    notifyListeners();
+  }
+
   bool unlock(String password) {
     final rec = _pwRecord;
     if (rec != null && PasswordStore.hashOf(password, rec.salt) != rec.hash) {
@@ -103,9 +124,11 @@ class VaultController extends ChangeNotifier {
     _settingsStore = SettingsStore(root);
     _reminderStore = ReminderStore(root);
     _pinnedStore = PinnedStore(root);
+    _projectColorsStore = ProjectColorsStore(root);
     _settings = await _settingsStore!.load();
     _reminders = await _reminderStore!.load();
     _pinned = await _pinnedStore!.load();
+    _projectColors = await _projectColorsStore!.load();
     _projects = await _storage!.listProjects();
     _notes = await _storage!.loadNotes();
     _current = _notes.isNotEmpty ? _notes.first : null;

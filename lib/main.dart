@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'services/tray_service.dart';
 import 'state/vault_controller.dart';
 import 'ui/home_page.dart';
 import 'ui/theme.dart';
@@ -8,10 +11,19 @@ import 'ui/theme.dart';
 /// App version string surfaced in the About dialog. Keep in sync with pubspec.
 const String kAppVersion = '1.3.0';
 
-void main() {
+/// Tray/notifications singleton, initialized in [main] on desktop.
+TrayService? trayService;
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final controller = VaultController();
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    trayService = TrayService(onHidden: controller.lockNow);
+    await trayService!.init();
+  }
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => VaultController()..bootstrap(),
+    ChangeNotifierProvider.value(
+      value: controller..bootstrap(),
       child: const BloBnotApp(),
     ),
   );
