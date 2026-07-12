@@ -122,10 +122,15 @@ class VaultController extends ChangeNotifier {
     await _projectColorsStore?.save(_projectColors);
   }
 
-  /// Notes whose body wiki-links to [title].
-  List<Note> backlinksTo(String title) => _notes
-      .where((n) => n.title != title && n.outgoingLinks.contains(title))
-      .toList();
+  /// Notes whose body wiki-links to [title] (case-insensitive).
+  List<Note> backlinksTo(String title) {
+    final target = title.toLowerCase();
+    return _notes
+        .where((n) =>
+            n.title.toLowerCase() != target &&
+            n.outgoingLinks.any((l) => l.toLowerCase() == target))
+        .toList();
+  }
 
   Timer? _saveTimer;
   Timer? _reminderTimer;

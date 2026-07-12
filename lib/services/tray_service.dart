@@ -59,11 +59,20 @@ class TrayService with TrayListener, WindowListener {
   void onTrayIconMouseDown() => _show();
 
   @override
+  void onTrayIconMouseUp() => _show();
+
+  @override
+  void onTrayIconRightMouseDown() => trayManager.popUpContextMenu();
+
+  @override
   void onTrayMenuItemClick(MenuItem menuItem) async {
     switch (menuItem.key) {
       case 'show':
         await _show();
       case 'exit':
+        // Remove the tray icon first, otherwise Windows keeps a ghost icon
+        // in the tray until the cursor passes over it.
+        await trayManager.destroy();
         await windowManager.setPreventClose(false);
         await windowManager.destroy();
     }

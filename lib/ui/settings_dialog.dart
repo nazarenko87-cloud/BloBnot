@@ -58,23 +58,51 @@ class _SettingsDialog extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             const _Section('Theme'),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(
-                  value: 'dark',
-                  icon: Icon(Icons.dark_mode, size: 16),
-                  label: Text('Petrol dark'),
-                ),
-                ButtonSegment(
-                  value: 'light',
-                  icon: Icon(Icons.light_mode, size: 16),
-                  label: Text('Paper light'),
-                ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final p in kThemePresets)
+                  InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () => controller.setTheme(mode: p.id),
+                    child: Container(
+                      width: 76,
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: p.scaffold,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          width: 2,
+                          color: presetById(s.themeMode).id == p.id
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.grey.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Container(
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: p.surface,
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            p.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: p.dark ? Colors.white70 : Colors.black54,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
               ],
-              selected: {s.themeMode == 'light' ? 'light' : 'dark'},
-              showSelectedIcon: false,
-              onSelectionChanged: (v) =>
-                  controller.setTheme(mode: v.first),
             ),
             const SizedBox(height: 12),
             const Text('Accent', style: TextStyle(fontSize: 12)),

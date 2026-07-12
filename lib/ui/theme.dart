@@ -11,20 +11,83 @@ const List<Color> kAccents = [
   Color(0xFFE0D24F), // yellow
 ];
 
-ThemeData buildTheme({required bool dark, required int accentIndex}) {
+/// Background presets (v1.3 «фоновые пресеты» + neon conversion look).
+class ThemePreset {
+  const ThemePreset({
+    required this.id,
+    required this.label,
+    required this.dark,
+    required this.scaffold,
+    required this.surface,
+  });
+
+  final String id;
+  final String label;
+  final bool dark;
+  final Color scaffold;
+  final Color surface;
+}
+
+const List<ThemePreset> kThemePresets = [
+  ThemePreset(
+    id: 'petrol',
+    label: 'Petrol dark',
+    dark: true,
+    scaffold: Color(0xFF1C2426),
+    surface: Color(0xFF232D30),
+  ),
+  ThemePreset(
+    id: 'neon',
+    label: 'Neon night',
+    dark: true,
+    scaffold: Color(0xFF150F2E),
+    surface: Color(0xFF221A44),
+  ),
+  ThemePreset(
+    id: 'paper',
+    label: 'Paper light',
+    dark: false,
+    scaffold: Color(0xFFF5F2EA),
+    surface: Color(0xFFFFFFFF),
+  ),
+  ThemePreset(
+    id: 'amber',
+    label: 'Amber',
+    dark: false,
+    scaffold: Color(0xFFF6E7BF),
+    surface: Color(0xFFFCF3DA),
+  ),
+  ThemePreset(
+    id: 'mist',
+    label: 'Mist',
+    dark: false,
+    scaffold: Color(0xFFF1F4F8),
+    surface: Color(0xFFFFFFFF),
+  ),
+];
+
+ThemePreset presetById(String id) => kThemePresets.firstWhere(
+      (p) => p.id == id,
+      // Back-compat: old settings stored 'dark'/'light'.
+      orElse: () => id == 'light' ? kThemePresets[2] : kThemePresets[0],
+    );
+
+ThemeData buildTheme({required String presetId, required int accentIndex}) {
+  final preset = presetById(presetId);
   final accent = kAccents[accentIndex.clamp(0, kAccents.length - 1)];
-  final base = dark ? ThemeData.dark(useMaterial3: true) : ThemeData.light(useMaterial3: true);
-  final scaffold = dark ? const Color(0xFF1C2426) : const Color(0xFFF5F2EA);
-  final surface = dark ? const Color(0xFF232D30) : const Color(0xFFFFFFFF);
+  final base = preset.dark
+      ? ThemeData.dark(useMaterial3: true)
+      : ThemeData.light(useMaterial3: true);
 
   return base.copyWith(
-    scaffoldBackgroundColor: scaffold,
+    scaffoldBackgroundColor: preset.scaffold,
     colorScheme: base.colorScheme.copyWith(
       primary: accent,
       secondary: accent,
-      surface: surface,
+      surface: preset.surface,
     ),
-    dividerColor: dark ? Colors.white12 : Colors.black12,
+    appBarTheme: base.appBarTheme.copyWith(backgroundColor: preset.scaffold),
+    dividerColor: preset.dark ? Colors.white12 : Colors.black12,
     textSelectionTheme: TextSelectionThemeData(
       cursorColor: accent,
       selectionColor: accent.withValues(alpha: 0.3),

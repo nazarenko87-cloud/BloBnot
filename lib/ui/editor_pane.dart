@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -108,12 +110,16 @@ class _EditorPaneState extends State<EditorPane> {
             onExportPdf: () => _export(context, note, ExportService.toPdf),
             onLineReminder: () => _insertLineReminder(context),
             onAiContext: () => _copyAiContext(context, note),
+            onLinkPicker: () => _pickLink(context),
           ),
           if (_findVisible) _findBar(context),
           const Divider(height: 1),
           Expanded(child: _body(context, note)),
           _BacklinksPanel(note: note),
-          _AttachmentsPanel(note: note),
+          _AttachmentsPanel(
+            note: note,
+            onAttach: () => _attachFile(context),
+          ),
         ],
       ),
     );
@@ -214,6 +220,75 @@ class _EditorPaneState extends State<EditorPane> {
         const SnackBar(content: Text('AI context copied to clipboard')),
       );
     }
+  }
+
+  /// Note picker for the link button when nothing is selected: choose a note
+  /// and `[[Title]]` is inserted at the cursor.
+  Future<void> _pickLink(BuildContext context) async {
+    final controller = context.read<VaultController>();
+    final searchCtrl = TextEditingController();
+    final title = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Link to note'),
+        contentPadding: const EdgeInsets.all(12),
+        content: StatefulBuilder(
+          builder: (context, setDialogState) {
+            final q = searchCtrl.text.toLowerCase();
+            final matches = controller.notes
+                .where((n) =>
+                    n.path != controller.current?.path &&
+                    n.title.toLowerCase().contains(q))
+                .take(10)
+                .toList();
+            return SizedBox(
+              width: 380,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: searchCtrl,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Search notes…',
+                      prefixIcon: Icon(Icons.link),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setDialogState(() {}),
+                    onSubmitted: (_) {
+                      if (matches.isNotEmpty) {
+                        Navigator.pop(context, matches.first.title);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  for (final n in matches)
+                    ListTile(
+                      dense: true,
+                      leading:
+                          const Icon(Icons.description_outlined, size: 16),
+                      title: Text(n.title),
+                      onTap: () => Navigator.pop(context, n.title),
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    if (title == null || title.isEmpty) return;
+    final link = '[[$title]]';
+    final sel = _textController.selection;
+    final offset = sel.isValid ? sel.start : _textController.text.length;
+    _textController.text = _textController.text.replaceRange(
+      offset,
+      sel.isValid ? sel.end : offset,
+      link,
+    );
+    _textController.selection =
+        TextSelection.collapsed(offset: offset + link.length);
+    _commitText();
   }
 
   Future<void> _insertLineReminder(BuildContext context) async {
@@ -482,6 +557,24 @@ class _EditorPaneState extends State<EditorPane> {
       },
       sizedImageBuilder: (config) {
         final src = config.uri.toString();
+        if (src.startsWith('assets/stickers/')) {
+          // Small squircle emoji-style: crop away the caption text baked
+          // into the sticker's edges, keep just the character.
+          return ClipRSuperellipse(
+            borderRadius: BorderRadius.circular(14),
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: ClipRect(
+                child: Align(
+                  widthFactor: 0.8,
+                  heightFactor: 0.7,
+                  child: Image.asset(src, width: 55, height: 63),
+                ),
+              ),
+            ),
+          );
+        }
         if (src.startsWith('assets/')) {
           return Image.asset(src, width: 72, height: 72);
         }
@@ -527,10 +620,119 @@ class _BacklinksPanel extends StatelessWidget {
   }
 }
 
+class _AttachmentCard extends StatelessWidget {
+  const _AttachmentCard({
+    required this.name,
+    required this.store,
+    required this.onDelete,
+  });
+
+  final String name;
+  final AttachmentStore store;
+  final VoidCallback onDelete;
+
+  static const _imageExts = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'};
+
+  IconData get _typeIcon {
+    final ext = name.contains('.')
+        ? name.substring(name.lastIndexOf('.')).toLowerCase()
+        : '';
+    if (_imageExts.contains(ext)) return Icons.image_outlined;
+    if (ext == '.pdf') return Icons.picture_as_pdf_outlined;
+    if ({'.mp3', '.wav', '.ogg'}.contains(ext)) return Icons.audiotrack;
+    if ({'.mp4', '.mkv', '.avi'}.contains(ext)) return Icons.movie_outlined;
+    if ({'.zip', '.rar', '.7z'}.contains(ext)) return Icons.folder_zip_outlined;
+    return Icons.insert_drive_file_outlined;
+  }
+
+  Future<String> _sizeLabel() async {
+    try {
+      final bytes = await File(store.pathOf(name)).length();
+      if (bytes < 1024) return '$bytes B';
+      if (bytes < 1024 * 1024) {
+        return '${(bytes / 1024).toStringAsFixed(2)} KB';
+      }
+      return '${(bytes / 1024 / 1024).toStringAsFixed(2)} MB';
+    } on IOException {
+      return 'missing';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+      child: Material(
+        color: accent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => store.open(name),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: accent.withValues(alpha: 0.25)),
+            ),
+            child: Row(
+              children: [
+                Icon(_typeIcon, size: 22, color: accent),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                      FutureBuilder<String>(
+                        future: _sizeLabel(),
+                        builder: (context, snap) => Text(
+                          'img-size: ${snap.data ?? '…'}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.attach_file, size: 18, color: accent),
+                PopupMenuButton<String>(
+                  tooltip: 'Attachment menu',
+                  icon: const Icon(Icons.more_horiz, size: 18),
+                  onSelected: (v) => switch (v) {
+                    'open' => store.open(name),
+                    'delete' => onDelete(),
+                    _ => null,
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'open', child: Text('Open')),
+                    PopupMenuItem(value: 'delete', child: Text('Delete')),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _AttachmentsPanel extends StatelessWidget {
-  const _AttachmentsPanel({required this.note});
+  const _AttachmentsPanel({required this.note, required this.onAttach});
 
   final Note note;
+  final VoidCallback onAttach;
 
   @override
   Widget build(BuildContext context) {
@@ -551,61 +753,22 @@ class _AttachmentsPanel extends StatelessWidget {
           ),
           children: [
             for (final name in names)
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 3,
-                ),
-                child: Material(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .primary
-                      .withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(8),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: () => store.open(name),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.attach_file,
-                            size: 20,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color:
-                                    Theme.of(context).colorScheme.primary,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Open',
-                            icon: const Icon(Icons.open_in_new, size: 18),
-                            color: Theme.of(context).colorScheme.primary,
-                            onPressed: () => store.open(name),
-                          ),
-                          IconButton(
-                            tooltip: 'Delete file',
-                            icon: const Icon(Icons.delete_outline, size: 18),
-                            onPressed: () =>
-                                _confirmDelete(context, store, name),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+              _AttachmentCard(
+                name: name,
+                store: store,
+                onDelete: () => _confirmDelete(context, store, name),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.tonalIcon(
+                  icon: const Icon(Icons.attach_file, size: 18),
+                  label: const Text('Attach file'),
+                  onPressed: onAttach,
                 ),
               ),
-            const SizedBox(height: 6),
+            ),
           ],
         ),
       ],
@@ -686,6 +849,7 @@ class _Toolbar extends StatelessWidget {
     required this.onExportPdf,
     required this.onLineReminder,
     required this.onAiContext,
+    required this.onLinkPicker,
   });
 
   final TextEditingController controller;
@@ -696,6 +860,7 @@ class _Toolbar extends StatelessWidget {
   final VoidCallback onExportPdf;
   final VoidCallback onLineReminder;
   final VoidCallback onAiContext;
+  final VoidCallback onLinkPicker;
 
   void _wrap(String left, String right) {
     EditorOps.wrapSelection(controller, left, right);
@@ -721,10 +886,18 @@ class _Toolbar extends StatelessWidget {
         children: [
           const SizedBox(width: 8),
           // Wiki link — the flagship action, accented like Attach file.
+          // With a selection it wraps it; otherwise opens the note picker.
           IconButton.filledTonal(
             tooltip: 'Wiki link',
             icon: Icon(Icons.link, size: 22, color: accent),
-            onPressed: () => _wrap('[[', ']]'),
+            onPressed: () {
+              final sel = controller.selection;
+              if (sel.isValid && !sel.isCollapsed) {
+                _wrap('[[', ']]');
+              } else {
+                onLinkPicker();
+              }
+            },
           ),
           const SizedBox(width: 4),
           btn(Icons.format_bold, 'Bold', () => _wrap('**', '**')),

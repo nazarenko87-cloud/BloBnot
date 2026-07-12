@@ -46,13 +46,19 @@ class _GraphViewState extends State<GraphView>
   }
 
   /// Rebuild nodes/edges only when the link structure actually changes.
+  /// Link targets are matched case-insensitively.
   void _rebuildIfNeeded(List<Note> notes) {
-    final titles = notes.map((n) => n.title).toSet();
+    final titles = notes.map((n) => n.title.toLowerCase()).toSet();
     final sig = StringBuffer();
     for (final n in notes) {
       sig.write(n.title);
       sig.write('>');
-      sig.write(n.outgoingLinks.where(titles.contains).join(','));
+      sig.write(
+        n.outgoingLinks
+            .map((l) => l.toLowerCase())
+            .where(titles.contains)
+            .join(','),
+      );
       sig.write(';');
     }
     if (sig.toString() == _signature) return;
@@ -62,15 +68,15 @@ class _GraphViewState extends State<GraphView>
     final nodes = <_Node>[];
     final index = <String, int>{};
     for (final n in notes) {
-      index[n.title] = nodes.length;
+      index[n.title.toLowerCase()] = nodes.length;
       nodes.add(_Node(n.title, byTitle[n.title])
         ..pos = Offset(_rng.nextDouble() * 300, _rng.nextDouble() * 300));
     }
     final edges = <(int, int)>[];
     for (final n in notes) {
-      final from = index[n.title]!;
+      final from = index[n.title.toLowerCase()]!;
       for (final link in n.outgoingLinks) {
-        final to = index[link];
+        final to = index[link.toLowerCase()];
         if (to != null && to != from) edges.add((from, to));
       }
     }
@@ -217,10 +223,16 @@ class _GraphPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Soft glow underlay + crisp line so connections read clearly.
+    final edgeGlow = Paint()
+      ..color = accent.withValues(alpha: 0.25)
+      ..strokeWidth = 4
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
     final edgePaint = Paint()
-      ..color = accent.withValues(alpha: 0.35)
-      ..strokeWidth = 1.2;
+      ..color = accent.withValues(alpha: 0.75)
+      ..strokeWidth = 1.6;
     for (final (from, to) in edges) {
+      canvas.drawLine(nodes[from].pos, nodes[to].pos, edgeGlow);
       canvas.drawLine(nodes[from].pos, nodes[to].pos, edgePaint);
     }
     for (final node in nodes) {

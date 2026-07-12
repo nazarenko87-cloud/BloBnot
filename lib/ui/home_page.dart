@@ -44,68 +44,113 @@ class _HomePageState extends State<HomePage> {
             _quickSwitcher(context),
       },
       child: Scaffold(
-      appBar: AppBar(
-        titleSpacing: 12,
-        title: Row(
+        appBar: AppBar(
+          titleSpacing: 12,
+          title: Row(
+            children: [
+              Image.asset('assets/icon.png', width: 22, height: 22),
+              const SizedBox(width: 8),
+              const Text(
+                'BloBnot',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'v$kAppVersion',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              ),
+            ],
+          ),
+        ),
+        // Conversion layout: all app functions live on the left rail.
+        body: Row(
           children: [
-            const Text(
-              'BloBnot',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'v$kAppVersion',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+            _rail(context),
+            const VerticalDivider(width: 1),
+            Expanded(
+              child: _showDashboard
+                  ? DashboardView(
+                      onOpenNote: () =>
+                          setState(() => _showDashboard = false),
+                    )
+                  : Row(
+                      children: [
+                        if (_showList)
+                          SizedBox(
+                            width: 260,
+                            child: NoteList(onNew: () => _newNote(context)),
+                          ),
+                        if (_showList) const VerticalDivider(width: 1),
+                        Expanded(child: _editorAndGraph(context)),
+                      ],
+                    ),
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            tooltip: _showDashboard ? 'Back to editor' : 'Dashboard',
-            icon: Icon(
-              _showDashboard ? Icons.edit_note : Icons.dashboard_outlined,
-            ),
-            onPressed: () =>
-                setState(() => _showDashboard = !_showDashboard),
-          ),
-          IconButton(
-            tooltip: _showList ? 'Hide notes list' : 'Show notes list',
-            icon: Icon(
-              _showList ? Icons.view_sidebar : Icons.view_sidebar_outlined,
-            ),
-            onPressed: () => setState(() => _showList = !_showList),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'Menu',
-            icon: const Icon(Icons.more_vert),
-            onSelected: (v) => switch (v) {
-              'settings' => showSettingsDialog(context),
-              'about' => _showAbout(context),
-              _ => null,
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'settings', child: Text('Settings…')),
-              PopupMenuItem(value: 'about', child: Text('About')),
-            ],
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
-      body: _showDashboard
-          ? DashboardView(
-              onOpenNote: () => setState(() => _showDashboard = false),
-            )
-          : Row(
-              children: [
-                if (_showList)
-                  SizedBox(
-                    width: 260,
-                    child: NoteList(onNew: () => _newNote(context)),
-                  ),
-                if (_showList) const VerticalDivider(width: 1),
-                Expanded(child: _editorAndGraph(context)),
-              ],
+    );
+  }
+
+  Widget _rail(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    Widget item(IconData icon, String tip, bool active, VoidCallback onTap) =>
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: IconButton(
+            tooltip: tip,
+            isSelected: active,
+            style: IconButton.styleFrom(
+              backgroundColor:
+                  active ? accent.withValues(alpha: 0.18) : null,
             ),
+            icon: Icon(icon, size: 22, color: active ? accent : null),
+            onPressed: onTap,
+          ),
+        );
+
+    return Container(
+      width: 52,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        children: [
+          item(
+            Icons.description_outlined,
+            'Notes',
+            !_showDashboard,
+            () => setState(() => _showDashboard = false),
+          ),
+          item(
+            Icons.dashboard_outlined,
+            'Dashboard',
+            _showDashboard,
+            () => setState(() => _showDashboard = true),
+          ),
+          item(
+            Icons.view_sidebar_outlined,
+            _showList ? 'Hide notes list' : 'Show notes list',
+            _showList,
+            () => setState(() => _showList = !_showList),
+          ),
+          item(
+            Icons.bolt,
+            'Quick switcher (Ctrl+P)',
+            false,
+            () => _quickSwitcher(context),
+          ),
+          const Spacer(),
+          item(
+            Icons.settings_outlined,
+            'Settings',
+            false,
+            () => showSettingsDialog(context),
+          ),
+          item(
+            Icons.info_outline,
+            'About',
+            false,
+            () => _showAbout(context),
+          ),
+        ],
       ),
     );
   }
