@@ -12,8 +12,25 @@ class NoteList extends StatefulWidget {
   State<NoteList> createState() => _NoteListState();
 }
 
+enum _Sort { name, date, size }
+
+final ButtonStyle _compactButton = IconButton.styleFrom(
+  padding: EdgeInsets.zero,
+  minimumSize: const Size(34, 34),
+  maximumSize: const Size(34, 34),
+  visualDensity: VisualDensity.compact,
+);
+
 class _NoteListState extends State<NoteList> {
   String _query = '';
+  _Sort _sort = _Sort.name;
+
+  int _compare(Note a, Note b) => switch (_sort) {
+        _Sort.name =>
+          a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+        _Sort.date => b.modified.compareTo(a.modified),
+        _Sort.size => b.body.length.compareTo(a.body.length),
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +40,8 @@ class _NoteListState extends State<NoteList> {
             _query.isEmpty ||
             n.title.toLowerCase().contains(_query.toLowerCase()) ||
             n.body.toLowerCase().contains(_query.toLowerCase()))
-        .toList();
+        .toList()
+      ..sort(_compare);
     final pinned =
         filtered.where((n) => controller.isPinned(n.title)).toList();
     final rest =
@@ -47,14 +65,28 @@ class _NoteListState extends State<NoteList> {
               Text('Notes  ${controller.notes.length}',
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               const Spacer(),
+              PopupMenuButton<_Sort>(
+                tooltip: 'Sort',
+                icon: const Icon(Icons.sort_by_alpha, size: 18),
+                style: _compactButton,
+                initialValue: _sort,
+                onSelected: (v) => setState(() => _sort = v),
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: _Sort.name, child: Text('By name')),
+                  PopupMenuItem(value: _Sort.date, child: Text('By date')),
+                  PopupMenuItem(value: _Sort.size, child: Text('By size')),
+                ],
+              ),
               IconButton(
                 tooltip: 'New project (folder)',
-                icon: const Icon(Icons.create_new_folder_outlined, size: 20),
+                style: _compactButton,
+                icon: const Icon(Icons.create_new_folder_outlined, size: 18),
                 onPressed: () => _newProject(context),
               ),
               IconButton(
                 tooltip: 'New note',
-                icon: const Icon(Icons.add),
+                style: _compactButton,
+                icon: const Icon(Icons.add, size: 20),
                 onPressed: widget.onNew,
               ),
             ],

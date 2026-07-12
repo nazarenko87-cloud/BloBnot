@@ -8,6 +8,7 @@ import '../services/pinned_store.dart';
 import '../services/reminder_store.dart';
 import '../services/settings_store.dart';
 import '../services/vault_storage.dart';
+import '../utils/line_reminders.dart';
 
 /// Single source of truth for the open vault: notes, selection, theme,
 /// reminders and the launch-password lock.
@@ -37,6 +38,10 @@ class VaultController extends ChangeNotifier {
   /// Title of a reminder that just came due — the UI shows it and calls
   /// [dismissDueReminder]. Null when nothing is due.
   String? _dueTitle;
+
+  /// When the due alert came from a `{{remind:}}` tag, the note it lives in
+  /// (dismissing strips the due tags from that note's body).
+  Note? _dueLineNote;
 
   List<Note> get notes => List.unmodifiable(_notes);
   Note? get current => _current;
@@ -130,11 +135,20 @@ class VaultController extends ChangeNotifier {
   void select(Note note) {
     _flushPendingSave();
     _current = note;
-    // v1.3 behaviour: opening a note after its reminder passed clears it.
+    final now = DateTime.now();
+    // v1.3 behaviour: opening a note after its reminder passed clears it —
+    // both the note-level reminder and any overdue {{remind:}} line tags.
     final due = _reminders[note.title];
-    if (due != null && due.isBefore(DateTime.now())) {
+    if (due != null && due.isBefore(now)) {
       _reminders.remove(note.title);
       unawaited(_reminderStore?.save(_reminders));
+    }
+    final stripped = LineReminders.stripDue(note.body, now);
+    if (stripped != null) {
+      _current = note.copyWith(body: stripped);
+      final idx = _notes.indexWhere((n) => n.path == note.path);
+      if (idx >= 0) _notes[idx] = _current!;
+      unawaited(_storage?.write(_current!));
     }
     notifyListeners();
   }
@@ -243,13 +257,32 @@ class VaultController extends ChangeNotifier {
         return;
       }
     }
+    for (final note in _notes) {
+      if (LineReminders.firstDue(note.body, now) != null) {
+        _dueTitle = note.title;
+        _dueLineNote = note;
+        notifyListeners();
+        return;
+      }
+    }
   }
 
   /// Called by the UI after showing the due alert: clears the fired reminder.
   Future<void> dismissDueReminder() async {
     final title = _dueTitle;
+    final lineNote = _dueLineNote;
     _dueTitle = null;
-    if (title != null && _reminders.remove(title) != null) {
+    _dueLineNote = null;
+    if (lineNote != null) {
+      final stripped = LineReminders.stripDue(lineNote.body, DateTime.now());
+      if (stripped != null) {
+        final updated = lineNote.copyWith(body: stripped);
+        final idx = _notes.indexWhere((n) => n.path == lineNote.path);
+        if (idx >= 0) _notes[idx] = updated;
+        if (_current?.path == lineNote.path) _current = updated;
+        await _storage?.write(updated);
+      }
+    } else if (title != null && _reminders.remove(title) != null) {
       await _reminderStore?.save(_reminders);
     }
     notifyListeners();

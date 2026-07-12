@@ -2,6 +2,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:markdown/markdown.dart' as md;
 import 'package:provider/provider.dart';
 
 import '../models/note.dart';
@@ -9,6 +10,7 @@ import '../services/attachment_store.dart';
 import '../services/export_service.dart';
 import '../state/vault_controller.dart';
 import '../utils/editor_ops.dart';
+import '../utils/line_reminders.dart';
 import 'sticker_picker.dart';
 
 enum ViewMode { edit, split, preview }
@@ -104,6 +106,7 @@ class _EditorPaneState extends State<EditorPane> {
             onSticker: () => _pickSticker(context),
             onExportHtml: () => _export(context, note, ExportService.toHtml),
             onExportPdf: () => _export(context, note, ExportService.toPdf),
+            onLineReminder: () => _insertLineReminder(context),
           ),
           if (_findVisible) _findBar(context),
           const Divider(height: 1),
@@ -191,6 +194,32 @@ class _EditorPaneState extends State<EditorPane> {
     }
   }
 
+  Future<void> _insertLineReminder(BuildContext context) async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365 * 5)),
+    );
+    if (date == null || !context.mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(now),
+    );
+    if (time == null) return;
+    final tag = LineReminders.buildTag(
+      DateTime(date.year, date.month, date.day, time.hour, time.minute),
+    );
+    final sel = _textController.selection;
+    final offset = sel.isValid ? sel.end : _textController.text.length;
+    _textController.text =
+        _textController.text.replaceRange(offset, offset, ' $tag');
+    _textController.selection =
+        TextSelection.collapsed(offset: offset + tag.length + 1);
+    _commitText();
+  }
+
   Future<void> _pickSticker(BuildContext context) async {
     final controller = context.read<VaultController>();
     final asset = await showStickerPicker(context);
@@ -245,21 +274,24 @@ class _EditorPaneState extends State<EditorPane> {
             ),
             onPressed: () => _editReminder(context, controller, note, reminder),
           ),
-          SegmentedButton<ViewMode>(
-            segments: const [
-              ButtonSegment(value: ViewMode.edit, icon: Icon(Icons.edit)),
-              ButtonSegment(
-                value: ViewMode.split,
-                icon: Icon(Icons.vertical_split),
-              ),
-              ButtonSegment(
-                value: ViewMode.preview,
-                icon: Icon(Icons.visibility),
-              ),
-            ],
-            selected: {_mode},
-            showSelectedIcon: false,
-            onSelectionChanged: (s) => setState(() => _mode = s.first),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: SegmentedButton<ViewMode>(
+              segments: const [
+                ButtonSegment(value: ViewMode.edit, icon: Icon(Icons.edit)),
+                ButtonSegment(
+                  value: ViewMode.split,
+                  icon: Icon(Icons.vertical_split),
+                ),
+                ButtonSegment(
+                  value: ViewMode.preview,
+                  icon: Icon(Icons.visibility),
+                ),
+              ],
+              selected: {_mode},
+              showSelectedIcon: false,
+              onSelectionChanged: (s) => setState(() => _mode = s.first),
+            ),
           ),
         ],
       ),
@@ -394,7 +426,8 @@ class _EditorPaneState extends State<EditorPane> {
 
   Widget _preview(Note note) {
     // Render wiki-links as their display text for now (milestone 1).
-    final rendered = Checklist.linkify(note.body).replaceAllMapped(
+    final rendered =
+        LineReminders.linkify(Checklist.linkify(note.body)).replaceAllMapped(
       RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]'),
       (m) => '**${(m.group(2) ?? m.group(1))!.trim()}**',
     );
@@ -402,6 +435,7 @@ class _EditorPaneState extends State<EditorPane> {
       data: rendered,
       selectable: true,
       padding: const EdgeInsets.all(16),
+      extensionSet: md.ExtensionSet.gitHubFlavored,
       onTapLink: (text, href, title) {
         if (href == null || !href.startsWith('checkbox:')) return;
         final line = int.tryParse(href.substring('checkbox:'.length));
@@ -578,6 +612,7 @@ class _Toolbar extends StatelessWidget {
     required this.onSticker,
     required this.onExportHtml,
     required this.onExportPdf,
+    required this.onLineReminder,
   });
 
   final TextEditingController controller;
@@ -586,6 +621,7 @@ class _Toolbar extends StatelessWidget {
   final VoidCallback onSticker;
   final VoidCallback onExportHtml;
   final VoidCallback onExportPdf;
+  final VoidCallback onLineReminder;
 
   void _wrap(String left, String right) {
     EditorOps.wrapSelection(controller, left, right);
@@ -628,6 +664,7 @@ class _Toolbar extends StatelessWidget {
             () => _prefixLine('- [ ] '),
           ),
           btn(Icons.title, 'Heading', () => _prefixLine('# ')),
+          btn(Icons.alarm_add, 'Reminder on line', onLineReminder),
           btn(Icons.emoji_emotions_outlined, 'Sticker', onSticker),
           btn(Icons.code, 'Export HTML', onExportHtml),
           btn(Icons.picture_as_pdf_outlined, 'Export PDF', onExportPdf),

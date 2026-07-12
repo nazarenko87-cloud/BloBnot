@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../main.dart' show kAppVersion;
 import '../state/vault_controller.dart';
+import 'dashboard.dart';
 import 'editor_pane.dart';
 import 'graph_view.dart';
 import 'lock_screen.dart';
@@ -19,6 +20,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   bool _showList = true;
+  bool _showDashboard = false;
   // Graph pane width as a fraction of the editor+graph area (18%–72%).
   double _graphFraction = 0.32;
   bool _dueDialogShowing = false;
@@ -58,6 +60,14 @@ class _HomePageState extends State<HomePage> {
         ),
         actions: [
           IconButton(
+            tooltip: _showDashboard ? 'Back to editor' : 'Dashboard',
+            icon: Icon(
+              _showDashboard ? Icons.edit_note : Icons.dashboard_outlined,
+            ),
+            onPressed: () =>
+                setState(() => _showDashboard = !_showDashboard),
+          ),
+          IconButton(
             tooltip: _showList ? 'Hide notes list' : 'Show notes list',
             icon: Icon(
               _showList ? Icons.view_sidebar : Icons.view_sidebar_outlined,
@@ -92,17 +102,21 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(width: 8),
         ],
       ),
-      body: Row(
-        children: [
-          if (_showList)
-            SizedBox(
-              width: 260,
-              child: NoteList(onNew: () => _newNote(context)),
+      body: _showDashboard
+          ? DashboardView(
+              onOpenNote: () => setState(() => _showDashboard = false),
+            )
+          : Row(
+              children: [
+                if (_showList)
+                  SizedBox(
+                    width: 260,
+                    child: NoteList(onNew: () => _newNote(context)),
+                  ),
+                if (_showList) const VerticalDivider(width: 1),
+                Expanded(child: _editorAndGraph(context)),
+              ],
             ),
-          if (_showList) const VerticalDivider(width: 1),
-          Expanded(child: _editorAndGraph(context)),
-        ],
-      ),
       ),
     );
   }
