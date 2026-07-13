@@ -146,6 +146,8 @@ class _NoteListState extends State<NoteList> {
                 for (final note in pinned) _tile(context, controller, note),
                 const Divider(height: 8),
               ],
+              // Root notes above the project folders (original ordering).
+              for (final note in rootNotes) _tile(context, controller, note),
               ReorderableListView(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -210,7 +212,6 @@ class _NoteListState extends State<NoteList> {
                     ),
                 ],
               ),
-              for (final note in rootNotes) _tile(context, controller, note),
             ],
           ),
         ),
@@ -232,6 +233,7 @@ class _NoteListState extends State<NoteList> {
       hasReminder: controller.hasAnyReminder(note),
       pinned: controller.isPinned(note.title),
       glyph: glyph,
+      glyphStyle: controller.settings.glyphStyle,
       onGlyphTap: glyph == null
           ? null
           : () => setState(
@@ -497,6 +499,7 @@ class _NoteTile extends StatelessWidget {
     required this.hasReminder,
     required this.pinned,
     required this.glyph,
+    required this.glyphStyle,
     required this.onGlyphTap,
     required this.onTap,
     required this.onPin,
@@ -510,6 +513,7 @@ class _NoteTile extends StatelessWidget {
   final bool hasReminder;
   final bool pinned;
   final String? glyph;
+  final String glyphStyle;
   final VoidCallback? onGlyphTap;
   final VoidCallback onTap;
   final VoidCallback onPin;
@@ -527,6 +531,7 @@ class _NoteTile extends StatelessWidget {
       leading: GlyphAvatar(
         note: note,
         glyph: glyph,
+        style: glyphStyle,
         pulse: hasReminder,
         onTap: onGlyphTap,
       ),

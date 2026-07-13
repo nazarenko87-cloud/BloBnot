@@ -392,8 +392,20 @@ class VaultController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setTheme({String? mode, int? accent}) async {
-    _settings = _settings.copyWith(themeMode: mode, accentIndex: accent);
+  Future<void> setTheme({
+    String? mode,
+    String? style,
+    int? accent,
+    String? glyphStyle,
+    double? editorScale,
+  }) async {
+    _settings = _settings.copyWith(
+      themeMode: mode,
+      themeStyle: style,
+      accentIndex: accent,
+      glyphStyle: glyphStyle,
+      editorScale: editorScale,
+    );
     notifyListeners();
     await _settingsStore?.save(_settings);
   }

@@ -357,6 +357,42 @@ class _EditorPaneState extends State<EditorPane> {
                   '${reminder != null ? '  ·  🔔 ${_fmt(reminder)}' : ''}',
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                 ),
+                // Copyable file path (v1.3): click puts it on the clipboard.
+                InkWell(
+                  onTap: () async {
+                    await Clipboard.setData(ClipboardData(text: note.path));
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Path copied')),
+                      );
+                    }
+                  },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          note.path,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary
+                                .withValues(alpha: 0.8),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.copy,
+                        size: 11,
+                        color: Colors.grey.shade500,
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -484,6 +520,8 @@ class _EditorPaneState extends State<EditorPane> {
 
   Widget _editor(BuildContext context) {
     final controller = context.read<VaultController>();
+    final scale = context
+        .select<VaultController, double>((c) => c.settings.editorScale);
     return Scrollbar(
       controller: _scroll,
       child: SingleChildScrollView(
@@ -492,7 +530,7 @@ class _EditorPaneState extends State<EditorPane> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _LineNumbers(text: _textController),
+              _LineNumbers(text: _textController, scale: scale),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -502,10 +540,10 @@ class _EditorPaneState extends State<EditorPane> {
                     maxLines: null,
                     expands: false,
                     keyboardType: TextInputType.multiline,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'monospace',
                       height: 1.5,
-                      fontSize: 14,
+                      fontSize: 14 * scale,
                     ),
                     decoration: const InputDecoration(
                       border: InputBorder.none,
@@ -538,13 +576,18 @@ class _EditorPaneState extends State<EditorPane> {
   }
 
   Widget _preview(Note note) {
+    final scale = context
+        .select<VaultController, double>((c) => c.settings.editorScale);
     // Render wiki-links as their display text for now (milestone 1).
     final rendered =
         LineReminders.linkify(Checklist.linkify(note.body)).replaceAllMapped(
       RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]'),
       (m) => '**${(m.group(2) ?? m.group(1))!.trim()}**',
     );
-    return Markdown(
+    return MediaQuery.withClampedTextScaling(
+      minScaleFactor: scale,
+      maxScaleFactor: scale,
+      child: Markdown(
       data: rendered,
       selectable: true,
       padding: const EdgeInsets.all(16),
@@ -581,6 +624,7 @@ class _EditorPaneState extends State<EditorPane> {
         }
         return Text(config.alt ?? src);
       },
+      ),
     );
   }
 }
@@ -806,8 +850,9 @@ class _AttachmentsPanel extends StatelessWidget {
 }
 
 class _LineNumbers extends StatelessWidget {
-  const _LineNumbers({required this.text});
+  const _LineNumbers({required this.text, required this.scale});
   final TextEditingController text;
+  final double scale;
 
   @override
   Widget build(BuildContext context) {
@@ -828,7 +873,7 @@ class _LineNumbers extends StatelessWidget {
                   style: TextStyle(
                     fontFamily: 'monospace',
                     height: 1.5,
-                    fontSize: 14,
+                    fontSize: 14 * scale,
                     color: Colors.grey.shade600,
                   ),
                 ),
@@ -925,12 +970,12 @@ class _Toolbar extends StatelessWidget {
           btn(Icons.picture_as_pdf_outlined, 'Export PDF', onExportPdf),
           btn(Icons.smart_toy_outlined, 'Copy AI context', onAiContext),
           const SizedBox(width: 4),
-          // Prominent, at the very end of the toolbar (per handoff) — and the
-          // toolbar scrolls horizontally, so it can never be clipped away.
-          OutlinedButton.icon(
+          // Big accent paperclip at the very end (original toolbar look);
+          // the toolbar scrolls horizontally, so it can never be clipped.
+          IconButton.filledTonal(
+            tooltip: 'Attach file',
+            icon: Icon(Icons.attach_file, size: 22, color: accent),
             onPressed: onAttach,
-            icon: const Icon(Icons.attach_file, size: 18),
-            label: const Text('Attach file'),
           ),
           const SizedBox(width: 8),
         ],

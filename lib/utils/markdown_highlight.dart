@@ -25,6 +25,7 @@ final _inline = RegExp(
 );
 
 final _headingLine = RegExp(r'^#{1,6}\s');
+final _listMarker = RegExp(r'^(\s*)(\d+\.|[-*]( \[( |x|X)\])?)(?= )');
 
 /// Split markdown [text] into styled spans (v1.0 live highlighting):
 /// headings accent+bold, `[[links]]` accent, `#tags` amber, code teal.
@@ -46,7 +47,20 @@ List<TextSpan> highlightMarkdown(
       continue;
     }
     var pos = 0;
+    // List markers ("1.", "-", "- [ ]") get the accent colour (v1.0 look).
+    final marker = _listMarker.firstMatch(line);
+    if (marker != null) {
+      if (marker.group(1)!.isNotEmpty) {
+        spans.add(TextSpan(text: marker.group(1), style: base));
+      }
+      spans.add(TextSpan(
+        text: marker.group(2),
+        style: base.copyWith(color: p.link, fontWeight: FontWeight.w700),
+      ));
+      pos = marker.end;
+    }
     for (final m in _inline.allMatches(line)) {
+      if (m.start < pos) continue;
       if (m.start > pos) {
         spans.add(TextSpan(text: line.substring(pos, m.start), style: base));
       }

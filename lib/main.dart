@@ -39,9 +39,16 @@ class BloBnotApp extends StatelessWidget {
       title: 'BloBnot',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(
-        presetId: s.themeMode,
+        styleId: s.themeStyle,
         accentIndex: s.accentIndex,
+        dark: false,
       ),
+      darkTheme: buildTheme(
+        styleId: s.themeStyle,
+        accentIndex: s.accentIndex,
+        dark: true,
+      ),
+      themeMode: themeModeOf(s.themeMode),
       home: const HomePage(),
     );
   }

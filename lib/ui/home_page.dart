@@ -2,12 +2,14 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../main.dart' show kAppVersion, trayService;
 import '../state/vault_controller.dart';
 import 'dashboard.dart';
 import 'editor_pane.dart';
 import 'graph_view.dart';
+import 'calculator_dialog.dart';
 import 'lock_screen.dart';
 import 'note_list.dart';
 import 'settings_dialog.dart';
@@ -61,6 +63,22 @@ class _HomePageState extends State<HomePage> {
               ),
             ],
           ),
+          actions: [
+            IconButton(
+              tooltip: 'Fullscreen',
+              icon: const Icon(Icons.fullscreen),
+              onPressed: () async {
+                final fs = await windowManager.isFullScreen();
+                await windowManager.setFullScreen(!fs);
+              },
+            ),
+            IconButton(
+              tooltip: 'Calculator',
+              icon: const Icon(Icons.calculate_outlined),
+              onPressed: () => showCalculatorDialog(context),
+            ),
+            const SizedBox(width: 8),
+          ],
         ),
         // Conversion layout: all app functions live on the left rail.
         body: Row(

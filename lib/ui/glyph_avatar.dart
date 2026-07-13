@@ -16,12 +16,16 @@ class GlyphAvatar extends StatelessWidget {
     super.key,
     required this.note,
     required this.glyph,
+    this.style = 'ring',
     this.pulse = false,
     this.onTap,
   });
 
   final Note note;
   final String? glyph;
+
+  /// 'ring' | 'fill' | 'tint' (Settings → Glyph style, v1.3).
+  final String style;
   final bool pulse;
   final VoidCallback? onTap;
 
@@ -31,16 +35,27 @@ class GlyphAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
     final progress = note.checklistProgress;
+    final fill = style == 'fill';
 
     Widget avatar = CustomPaint(
-      painter: _MedallionPainter(progress: progress, color: accent),
+      painter: _MedallionPainter(
+        progress: progress,
+        color: accent,
+        style: style,
+      ),
       child: Center(
         child: Text(
           glyph ??
               (note.title.isEmpty
                   ? '?'
                   : note.title.characters.first.toUpperCase()),
-          style: TextStyle(fontSize: glyph != null ? 15 : 13, color: accent),
+          style: TextStyle(
+            fontSize: glyph != null ? 15 : 13,
+            fontWeight: FontWeight.w600,
+            color: fill
+                ? Theme.of(context).colorScheme.surface
+                : accent,
+          ),
         ),
       ),
     );
@@ -60,30 +75,56 @@ class GlyphAvatar extends StatelessWidget {
 }
 
 class _MedallionPainter extends CustomPainter {
-  _MedallionPainter({required this.progress, required this.color});
+  _MedallionPainter({
+    required this.progress,
+    required this.color,
+    required this.style,
+  });
 
   final double? progress;
   final Color color;
+  final String style;
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
     final r = size.shortestSide / 2 - 2;
 
-    // Ring-style medallion (original v1.0 look): subtle fill + outline.
-    canvas.drawCircle(
-      center,
-      r,
-      Paint()..color = color.withValues(alpha: 0.08),
-    );
-    canvas.drawCircle(
-      center,
-      r,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6
-        ..color = color.withValues(alpha: progress == null ? 0.55 : 0.18),
-    );
+    switch (style) {
+      case 'fill':
+        canvas.drawCircle(center, r, Paint()..color = color);
+      case 'tint':
+        final rect = RRect.fromRectAndRadius(
+          Rect.fromCircle(center: center, radius: r),
+          Radius.circular(r * 0.45),
+        );
+        canvas.drawRRect(
+          rect,
+          Paint()..color = color.withValues(alpha: 0.20),
+        );
+        canvas.drawRRect(
+          rect,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.4
+            ..color = color.withValues(alpha: 0.45),
+        );
+      default: // ring
+        canvas.drawCircle(
+          center,
+          r,
+          Paint()..color = color.withValues(alpha: 0.08),
+        );
+        canvas.drawCircle(
+          center,
+          r,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.6
+            ..color =
+                color.withValues(alpha: progress == null ? 0.55 : 0.18),
+        );
+    }
 
     if (progress != null) {
       // Bottom-up completion fill.
@@ -126,5 +167,5 @@ class _MedallionPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _MedallionPainter old) =>
-      old.progress != progress || old.color != color;
+      old.progress != progress || old.color != color || old.style != style;
 }
