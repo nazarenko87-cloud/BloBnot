@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -40,6 +41,7 @@ class _EditorPaneState extends State<EditorPane> {
   /// Markdown tree is not re-parsed on every keystroke.
   String _previewBody = '';
   Timer? _previewTimer;
+  bool _dropActive = false;
 
   @override
   void dispose() {
@@ -129,13 +131,45 @@ class _EditorPaneState extends State<EditorPane> {
             onSticker: () => _pickSticker(context),
             onExportHtml: () => _export(context, note, ExportService.toHtml),
             onExportPdf: () => _export(context, note, ExportService.toPdf),
-            onLineReminder: () => _insertLineReminder(context),
             onAiContext: () => _copyAiContext(context, note),
             onLinkPicker: () => _pickLink(context),
           ),
           if (_findVisible) _findBar(context),
           const Divider(height: 1),
-          Expanded(child: _body(context, note)),
+          Expanded(
+            child: DropTarget(
+              onDragDone: (detail) => _attachPaths(
+                context,
+                detail.files.map((f) => f.path).toList(),
+              ),
+              onDragEntered: (_) => setState(() => _dropActive = true),
+              onDragExited: (_) => setState(() => _dropActive = false),
+              child: Stack(
+                children: [
+                  Positioned.fill(child: _body(context, note)),
+                  if (_dropActive)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: Container(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withValues(alpha: 0.12),
+                          alignment: Alignment.center,
+                          child: const Text(
+                            'Drop files to attach',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
           _BacklinksPanel(note: note),
           _AttachmentsPanel(
             note: note,
@@ -243,12 +277,54 @@ class _EditorPaneState extends State<EditorPane> {
     }
   }
 
+  /// Fires when the user has just typed `[[`: opens the note picker so the
+  /// link can be completed inline (autocomplete).
+  Future<void> _maybeAutocomplete(BuildContext context) async {
+    final sel = _textController.selection;
+    if (!sel.isValid || !sel.isCollapsed) return;
+    final caret = sel.start;
+    final text = _textController.text;
+    if (caret < 2 || text.substring(caret - 2, caret) != '[[') return;
+    // Skip if this `[[` is already closed just ahead.
+    if (caret <= text.length - 2 &&
+        text.substring(caret, caret + 2) == ']]') {
+      return;
+    }
+    final title = await _chooseNoteTitle(context);
+    if (title == null || !mounted) return;
+    // `[[` is already typed — insert `title]]` after the caret.
+    final at = _textController.selection.baseOffset.clamp(0, text.length);
+    final insert = '$title]]';
+    _textController.text =
+        _textController.text.replaceRange(at, at, insert);
+    _textController.selection =
+        TextSelection.collapsed(offset: at + insert.length);
+    _commitText();
+  }
+
   /// Note picker for the link button when nothing is selected: choose a note
   /// and `[[Title]]` is inserted at the cursor.
   Future<void> _pickLink(BuildContext context) async {
+    final title = await _chooseNoteTitle(context);
+    if (title == null || title.isEmpty) return;
+    final link = '[[$title]]';
+    final sel = _textController.selection;
+    final offset = sel.isValid ? sel.start : _textController.text.length;
+    _textController.text = _textController.text.replaceRange(
+      offset,
+      sel.isValid ? sel.end : offset,
+      link,
+    );
+    _textController.selection =
+        TextSelection.collapsed(offset: offset + link.length);
+    _commitText();
+  }
+
+  /// Shared searchable note picker; returns the chosen title or null.
+  Future<String?> _chooseNoteTitle(BuildContext context) async {
     final controller = context.read<VaultController>();
     final searchCtrl = TextEditingController();
-    final title = await showDialog<String>(
+    return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Link to note'),
@@ -298,18 +374,6 @@ class _EditorPaneState extends State<EditorPane> {
         ),
       ),
     );
-    if (title == null || title.isEmpty) return;
-    final link = '[[$title]]';
-    final sel = _textController.selection;
-    final offset = sel.isValid ? sel.start : _textController.text.length;
-    _textController.text = _textController.text.replaceRange(
-      offset,
-      sel.isValid ? sel.end : offset,
-      link,
-    );
-    _textController.selection =
-        TextSelection.collapsed(offset: offset + link.length);
-    _commitText();
   }
 
   Future<void> _insertLineReminder(BuildContext context) async {
@@ -372,10 +436,30 @@ class _EditorPaneState extends State<EditorPane> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                Text(
-                  '${note.wordCount} words · ${note.readMinutes} min'
-                  '${reminder != null ? '  ·  🔔 ${_fmt(reminder)}' : ''}',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  children: [
+                    Text(
+                      '${note.wordCount} words · ${note.readMinutes} min'
+                      '${reminder != null ? '  ·  🔔 ${_fmt(reminder)}' : ''}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                    // Save indicator (icon-only; label in the tooltip).
+                    Tooltip(
+                      message: controller.isDirty ? 'Saving…' : 'Saved',
+                      child: Icon(
+                        controller.isDirty ? Icons.sync : Icons.check_circle,
+                        size: 13,
+                        color: controller.isDirty
+                            ? Colors.grey.shade500
+                            : Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ],
                 ),
                 // Copyable file path (v1.3): click puts it on the clipboard.
                 InkWell(
@@ -416,8 +500,8 @@ class _EditorPaneState extends State<EditorPane> {
               ],
             ),
           ),
-          IconButton(
-            tooltip: reminder == null ? 'Set reminder' : 'Edit reminder',
+          PopupMenuButton<String>(
+            tooltip: 'Reminders',
             icon: Icon(
               reminder == null
                   ? Icons.notifications_none
@@ -426,7 +510,31 @@ class _EditorPaneState extends State<EditorPane> {
                   ? null
                   : Theme.of(context).colorScheme.primary,
             ),
-            onPressed: () => _editReminder(context, controller, note, reminder),
+            onSelected: (v) => switch (v) {
+              'note' => _editReminder(context, controller, note, reminder),
+              'line' => _insertLineReminder(context),
+              _ => null,
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'note',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.sticky_note_2_outlined, size: 18),
+                  title: Text('Reminder on note'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'line',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.alarm_add, size: 18),
+                  title: Text('Reminder on line (at cursor)'),
+                ),
+              ),
+            ],
           ),
           FittedBox(
             fit: BoxFit.scaleDown,
@@ -505,22 +613,37 @@ class _EditorPaneState extends State<EditorPane> {
   }
 
   Future<void> _attachFile(BuildContext context) async {
+    final file = await openFile();
+    if (file == null || !context.mounted) return;
+    await _attachPaths(context, [file.path]);
+  }
+
+  /// Copy one or more files into the vault's attachments and insert links
+  /// at the cursor. Shared by the picker button and drag-drop.
+  Future<void> _attachPaths(BuildContext context, List<String> paths) async {
     final controller = context.read<VaultController>();
     final root = controller.vaultRoot;
     if (root == null) return;
-    final file = await openFile();
-    if (file == null || !context.mounted) return;
-    final name = await AttachmentStore(root).add(file.path);
-    final link = '[📎 $name](attachments/${Uri.encodeComponent(name)})';
+    final store = AttachmentStore(root);
+    final links = StringBuffer();
+    for (final path in paths) {
+      final name = await store.add(path);
+      final ext = name.contains('.')
+          ? name.substring(name.lastIndexOf('.')).toLowerCase()
+          : '';
+      final img = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}.contains(ext);
+      final encoded = 'attachments/${Uri.encodeComponent(name)}';
+      links.write(img ? '![$name]($encoded)\n' : '[📎 $name]($encoded)\n');
+    }
     final sel = _textController.selection;
     final offset = sel.isValid ? sel.start : _textController.text.length;
     _textController.text = _textController.text.replaceRange(
       offset,
       sel.isValid ? sel.end : offset,
-      link,
+      links.toString(),
     );
     _textController.selection =
-        TextSelection.collapsed(offset: offset + link.length);
+        TextSelection.collapsed(offset: offset + links.length);
     controller.editCurrentBody(_textController.text);
   }
 
@@ -584,7 +707,11 @@ class _EditorPaneState extends State<EditorPane> {
                         ),
                       ],
                     ),
-                    onChanged: (v) => controller.editCurrentBody(v),
+                    onChanged: (v) {
+                      controller.editCurrentBody(v);
+                      _schedulePreview();
+                      _maybeAutocomplete(context);
+                    },
                   ),
                 ),
               ),
@@ -917,7 +1044,6 @@ class _Toolbar extends StatelessWidget {
     required this.onSticker,
     required this.onExportHtml,
     required this.onExportPdf,
-    required this.onLineReminder,
     required this.onAiContext,
     required this.onLinkPicker,
   });
@@ -928,7 +1054,6 @@ class _Toolbar extends StatelessWidget {
   final VoidCallback onSticker;
   final VoidCallback onExportHtml;
   final VoidCallback onExportPdf;
-  final VoidCallback onLineReminder;
   final VoidCallback onAiContext;
   final VoidCallback onLinkPicker;
 
@@ -950,13 +1075,18 @@ class _Toolbar extends StatelessWidget {
           icon: Icon(icon, size: 18),
           onPressed: onTap,
         );
+    Widget sep() => Container(
+          width: 1,
+          height: 22,
+          margin: const EdgeInsets.symmetric(horizontal: 6),
+          color: Theme.of(context).dividerColor,
+        );
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
           const SizedBox(width: 8),
-          // Wiki link — the flagship action, accented like Attach file.
-          // With a selection it wraps it; otherwise opens the note picker.
+          // Group: linking — wiki link is the flagship action.
           IconButton.filledTonal(
             tooltip: 'Wiki link',
             icon: Icon(Icons.link, size: 22, color: accent),
@@ -969,9 +1099,13 @@ class _Toolbar extends StatelessWidget {
               }
             },
           ),
-          const SizedBox(width: 4),
+          sep(),
+          // Group: text formatting.
           btn(Icons.format_bold, 'Bold', () => _wrap('**', '**')),
           btn(Icons.format_italic, 'Italic', () => _wrap('*', '*')),
+          btn(Icons.title, 'Heading', () => _prefixLine('# ')),
+          sep(),
+          // Group: lists.
           btn(
             Icons.format_list_bulleted,
             'Bullet list',
@@ -987,13 +1121,15 @@ class _Toolbar extends StatelessWidget {
             'Checklist',
             () => _prefixLine('- [ ] '),
           ),
-          btn(Icons.title, 'Heading', () => _prefixLine('# ')),
-          btn(Icons.alarm_add, 'Reminder on line', onLineReminder),
+          sep(),
+          // Group: insert.
           btn(Icons.emoji_emotions_outlined, 'Sticker', onSticker),
+          sep(),
+          // Group: export & AI.
           btn(Icons.code, 'Export HTML', onExportHtml),
           btn(Icons.picture_as_pdf_outlined, 'Export PDF', onExportPdf),
           btn(Icons.smart_toy_outlined, 'Copy AI context', onAiContext),
-          const SizedBox(width: 4),
+          sep(),
           // Big accent paperclip at the very end (original toolbar look);
           // the toolbar scrolls horizontally, so it can never be clipped.
           IconButton.filledTonal(

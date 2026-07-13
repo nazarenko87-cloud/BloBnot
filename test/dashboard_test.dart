@@ -59,6 +59,17 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     controller.dispose();
     AppSettings.overrideFile = null;
-    await tester.runAsync(() => tmp.delete(recursive: true));
+    // select() writes recent.json asynchronously; retry the delete until the
+    // handle is released (Windows).
+    await tester.runAsync(() async {
+      for (var i = 0; i < 10; i++) {
+        try {
+          await tmp.delete(recursive: true);
+          return;
+        } on FileSystemException {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+      }
+    });
   }, timeout: const Timeout(Duration(seconds: 60)));
 }

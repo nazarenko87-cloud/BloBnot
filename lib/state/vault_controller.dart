@@ -8,6 +8,7 @@ import '../services/glyph_store.dart';
 import '../services/pinned_store.dart';
 import '../services/project_colors_store.dart';
 import '../services/project_order_store.dart';
+import '../services/recent_store.dart';
 import '../services/reminder_store.dart';
 import '../services/settings_store.dart';
 import '../services/vault_storage.dart';
@@ -44,6 +45,11 @@ class VaultController extends ChangeNotifier {
   Map<String, String> _glyphOverrides = {};
   ProjectOrderStore? _projectOrderStore;
   List<String> _projectOrder = [];
+  RecentStore? _recentStore;
+  List<String> _recent = [];
+
+  /// Paths of notes open as tabs, in tab order.
+  final List<String> _openPaths = [];
 
   /// Title of a reminder that just came due — the UI shows it and calls
   /// [dismissDueReminder]. Null when nothing is due.
@@ -67,6 +73,35 @@ class VaultController extends ChangeNotifier {
   List<String> get projects => List.unmodifiable(
         ProjectOrderStore.applyOrder(_projects, _projectOrder),
       );
+
+  /// Recently opened notes (most-recent first) that still exist.
+  List<Note> get recentNotes {
+    final byTitle = {for (final n in _notes) n.title: n};
+    return [
+      for (final t in _recent)
+        if (byTitle[t] != null) byTitle[t]!,
+    ];
+  }
+
+  /// Notes currently open as tabs, in tab order.
+  List<Note> get openTabs {
+    final byPath = {for (final n in _notes) n.path: n};
+    return [
+      for (final p in _openPaths)
+        if (byPath[p] != null) byPath[p]!,
+    ];
+  }
+
+  void closeTab(String path) {
+    if (!_openPaths.remove(path)) return;
+    if (_current?.path == path) {
+      final next = _openPaths.isNotEmpty ? _openPaths.last : null;
+      _current = next == null
+          ? null
+          : _notes.firstWhere((n) => n.path == next, orElse: () => _notes.first);
+    }
+    notifyListeners();
+  }
   String projectOf(Note note) => _storage?.projectOf(note) ?? '';
   int? colorOf(String project) => _projectColors[project];
 
@@ -134,7 +169,10 @@ class VaultController extends ChangeNotifier {
 
   Timer? _saveTimer;
   Timer? _reminderTimer;
+
+  /// True while an edit is buffered but not yet written to disk.
   bool _dirty = false;
+  bool get isDirty => _dirty;
 
   /// On launch: engage the lock if a password is set, then reopen the
   /// last-used vault if it still exists.
@@ -181,6 +219,8 @@ class VaultController extends ChangeNotifier {
     _reminderStore = ReminderStore(root);
     _pinnedStore = PinnedStore(root);
     _projectColorsStore = ProjectColorsStore(root);
+    _recentStore = RecentStore(root);
+    _openPaths.clear();
     _glyphStore = GlyphStore(root);
     _projectOrderStore = ProjectOrderStore(root);
     _settings = await _settingsStore!.load();
@@ -190,9 +230,11 @@ class VaultController extends ChangeNotifier {
     _tagGlyphs = await _glyphStore!.loadTagGlyphs();
     _glyphOverrides = await _glyphStore!.loadOverrides();
     _projectOrder = await _projectOrderStore!.load();
+    _recent = await _recentStore!.load();
     _projects = await _storage!.listProjects();
     _notes = await _storage!.loadNotes();
     _current = _notes.isNotEmpty ? _notes.first : null;
+    if (_current != null) _openPaths.add(_current!.path);
     await AppSettings.setLastVault(root);
     _loading = false;
     _reminderTimer?.cancel();
@@ -219,6 +261,8 @@ class VaultController extends ChangeNotifier {
   void select(Note note) {
     _flushPendingSave();
     _current = note;
+    _touchRecent(note);
+    if (!_openPaths.contains(note.path)) _openPaths.add(note.path);
     final now = DateTime.now();
     // v1.3 behaviour: opening a note after its reminder passed clears it —
     // both the note-level reminder and any overdue {{remind:}} line tags.
@@ -257,15 +301,26 @@ class VaultController extends ChangeNotifier {
     _current = saved;
     final idx = _notes.indexWhere((n) => n.path == saved.path);
     if (idx >= 0) _notes[idx] = saved;
+    notifyListeners(); // flip the save indicator back to "Saved"
   }
 
-  Future<Note> createNote(String title, {String? subfolder}) async {
-    final note = await _storage!.create(title, subfolder: subfolder);
+  /// Templates are `.md` files in `{vault}/_templates/`.
+  Future<List<Note>> loadTemplates() => _storage!.loadTemplates();
+
+  Future<Note> createNote(
+    String title, {
+    String? subfolder,
+    String? body,
+  }) async {
+    final note =
+        await _storage!.create(title, subfolder: subfolder, body: body);
     _notes.add(note);
     _notes.sort(
-      (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+      (a, b) => a.titleLower.compareTo(b.titleLower),
     );
     _current = note;
+    _openPaths.add(note.path);
+    _touchRecent(note);
     notifyListeners();
     return note;
   }
@@ -273,6 +328,8 @@ class VaultController extends ChangeNotifier {
   Future<void> deleteNote(Note note) async {
     await _storage!.delete(note);
     _notes.removeWhere((n) => n.path == note.path);
+    _openPaths.remove(note.path);
+    _recent.remove(note.title);
     if (_reminders.remove(note.title) != null) {
       await _reminderStore?.save(_reminders);
     }
@@ -319,6 +376,8 @@ class VaultController extends ChangeNotifier {
     await _flushPendingSave();
     await _storage!.archive(note);
     _notes.removeWhere((n) => n.path == note.path);
+    _openPaths.remove(note.path);
+    _recent.remove(note.title);
     if (_pinned.remove(note.title)) await _pinnedStore?.save(_pinned);
     if (_reminders.remove(note.title) != null) {
       await _reminderStore?.save(_reminders);
@@ -349,6 +408,16 @@ class VaultController extends ChangeNotifier {
       notifyListeners();
       await _reminderStore?.save(_reminders);
     }
+  }
+
+  void _touchRecent(Note note) {
+    _recent
+      ..remove(note.title)
+      ..insert(0, note.title);
+    if (_recent.length > RecentStore.max) {
+      _recent = _recent.sublist(0, RecentStore.max);
+    }
+    unawaited(_recentStore?.save(_recent));
   }
 
   void _checkDueReminders() {

@@ -135,6 +135,11 @@ class _NoteListState extends State<NoteList> {
               ),
             ),
           ),
+        if (_query.isEmpty && controller.recentNotes.length > 1)
+          _RecentRow(
+            notes: controller.recentNotes,
+            onTap: controller.select,
+          ),
         const SizedBox(height: 8),
         Expanded(
           child: ListView(
@@ -467,6 +472,47 @@ class _NoteListState extends State<NoteList> {
     if (ok == true && context.mounted) {
       await context.read<VaultController>().deleteNote(note);
     }
+  }
+}
+
+class _RecentRow extends StatelessWidget {
+  const _RecentRow({required this.notes, required this.onTap});
+
+  final List<Note> notes;
+  final void Function(Note) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('Recent'),
+        SizedBox(
+          height: 30,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: notes.take(8).length,
+            separatorBuilder: (_, _) => const SizedBox(width: 6),
+            itemBuilder: (context, i) {
+              final note = notes[i];
+              return ActionChip(
+                visualDensity: VisualDensity.compact,
+                labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+                backgroundColor: accent.withValues(alpha: 0.10),
+                side: BorderSide(color: accent.withValues(alpha: 0.25)),
+                label: Text(
+                  note.title,
+                  style: const TextStyle(fontSize: 11),
+                ),
+                onPressed: () => onTap(note),
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 }
 

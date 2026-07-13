@@ -12,6 +12,7 @@ import 'graph_view.dart';
 import 'calculator_dialog.dart';
 import 'lock_screen.dart';
 import 'note_list.dart';
+import 'open_tabs.dart';
 import 'settings_dialog.dart';
 
 class HomePage extends StatefulWidget {
@@ -24,6 +25,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   bool _showList = true;
   bool _showDashboard = false;
+  bool _showGraph = true;
   // Graph pane width as a fraction of the editor+graph area (18%–72%).
   double _graphFraction = 0.32;
   bool _dueDialogShowing = false;
@@ -259,22 +261,66 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _editorAndGraph(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final total = constraints.maxWidth;
-        final graphWidth = (total * _graphFraction).clamp(180.0, total - 260);
-        return Row(
-          children: [
-            const Expanded(child: EditorPane()),
-            _DragHandle(
-              onDrag: (dx) => setState(() {
-                _graphFraction = (_graphFraction - dx / total).clamp(0.18, 0.72);
-              }),
-            ),
-            SizedBox(width: graphWidth, child: const GraphView()),
-          ],
-        );
-      },
+    return Column(
+      children: [
+        const OpenTabs(),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final total = constraints.maxWidth;
+              if (!_showGraph) {
+                return Stack(
+                  children: [
+                    const Positioned.fill(child: EditorPane()),
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: IconButton(
+                        tooltip: 'Show graph',
+                        icon: const Icon(Icons.hub_outlined),
+                        onPressed: () => setState(() => _showGraph = true),
+                      ),
+                    ),
+                  ],
+                );
+              }
+              final graphWidth =
+                  (total * _graphFraction).clamp(180.0, total - 260);
+              return Row(
+                children: [
+                  const Expanded(child: EditorPane()),
+                  _DragHandle(
+                    onDrag: (dx) => setState(() {
+                      _graphFraction =
+                          (_graphFraction - dx / total).clamp(0.18, 0.72);
+                    }),
+                  ),
+                  SizedBox(
+                    width: graphWidth,
+                    child: Stack(
+                      children: [
+                        const Positioned.fill(child: GraphView()),
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: IconButton(
+                            tooltip: 'Hide graph',
+                            iconSize: 18,
+                            visualDensity: VisualDensity.compact,
+                            icon: const Icon(Icons.close_fullscreen),
+                            onPressed: () =>
+                                setState(() => _showGraph = false),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -286,8 +332,11 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _newNote(BuildContext context) async {
     final controller = context.read<VaultController>();
+    final templates = await controller.loadTemplates();
+    if (!context.mounted) return;
     final ctrl = TextEditingController();
     String project = '';
+    String templateTitle = '';
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -321,6 +370,26 @@ class _HomePageState extends State<HomePage> {
                   onChanged: (v) => setDialogState(() => project = v ?? ''),
                 ),
               ],
+              if (templates.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: templateTitle,
+                  decoration: const InputDecoration(
+                    labelText: 'Template',
+                    isDense: true,
+                  ),
+                  items: [
+                    const DropdownMenuItem(
+                      value: '',
+                      child: Text('(blank)'),
+                    ),
+                    for (final t in templates)
+                      DropdownMenuItem(value: t.title, child: Text(t.title)),
+                  ],
+                  onChanged: (v) =>
+                      setDialogState(() => templateTitle = v ?? ''),
+                ),
+              ],
             ],
           ),
         ),
@@ -338,9 +407,16 @@ class _HomePageState extends State<HomePage> {
     );
     final title = ctrl.text.trim();
     if (ok != true || title.isEmpty || !context.mounted) return;
+    String? body;
+    if (templateTitle.isNotEmpty) {
+      final tpl = templates.firstWhere((t) => t.title == templateTitle);
+      // Substitute the template's own heading for the new note's title.
+      body = tpl.body.replaceFirst('# ${tpl.title}', '# $title');
+    }
     await controller.createNote(
       title,
       subfolder: project.isEmpty ? null : project,
+      body: body,
     );
   }
 
