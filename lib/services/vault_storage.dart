@@ -15,20 +15,29 @@ class VaultStorage {
   bool get exists => _dir.existsSync();
 
   /// All `.md` files in the vault, recursively, skipping dot-folders and
-  /// the reserved `_archive` folder.
+  /// the reserved `_archive` folder. Files are read in parallel batches so
+  /// opening a cloud-synced vault does not stall on file-at-a-time I/O.
   Future<List<Note>> loadNotes() async {
     if (!exists) return [];
-    final notes = <Note>[];
+    final files = <File>[];
     await for (final entity in _dir.list(recursive: true, followLinks: false)) {
       if (entity is! File) continue;
       if (!entity.path.toLowerCase().endsWith('.md')) continue;
       final rel = p.relative(entity.path, from: root);
-      if (rel.split(p.separator).any((seg) => seg.startsWith('.') || seg == '_archive')) {
+      if (rel
+          .split(p.separator)
+          .any((seg) => seg.startsWith('.') || seg == '_archive')) {
         continue;
       }
-      notes.add(await _readFile(entity));
+      files.add(entity);
     }
-    notes.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+    final notes = <Note>[];
+    const batch = 24;
+    for (var i = 0; i < files.length; i += batch) {
+      final chunk = files.skip(i).take(batch);
+      notes.addAll(await Future.wait(chunk.map(_readFile)));
+    }
+    notes.sort((a, b) => a.titleLower.compareTo(b.titleLower));
     return notes;
   }
 

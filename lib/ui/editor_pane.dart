@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
@@ -35,8 +36,14 @@ class _EditorPaneState extends State<EditorPane> {
   String? _loadedPath;
   bool _findVisible = false;
 
+  /// Body shown in the preview pane, refreshed on a 200ms debounce so the
+  /// Markdown tree is not re-parsed on every keystroke.
+  String _previewBody = '';
+  Timer? _previewTimer;
+
   @override
   void dispose() {
+    _previewTimer?.cancel();
     _textController.dispose();
     _scroll.dispose();
     _focus.dispose();
@@ -47,12 +54,23 @@ class _EditorPaneState extends State<EditorPane> {
 
   void _commitText() {
     context.read<VaultController>().editCurrentBody(_textController.text);
+    _schedulePreview();
+  }
+
+  void _schedulePreview() {
+    _previewTimer?.cancel();
+    _previewTimer = Timer(const Duration(milliseconds: 200), () {
+      if (mounted && _previewBody != _textController.text) {
+        setState(() => _previewBody = _textController.text);
+      }
+    });
   }
 
   /// Replace the whole body from outside the TextField (checkbox toggles,
   /// find&replace) and persist.
   void _setBody(String body) {
     _textController.text = body;
+    _previewBody = body; // immediate — these are discrete edits
     _commitText();
   }
 
@@ -62,10 +80,12 @@ class _EditorPaneState extends State<EditorPane> {
     if (note == null) {
       _textController.clear();
       _loadedPath = null;
+      _previewBody = '';
       return;
     }
     if (note.path != _loadedPath) {
       _textController.text = note.body;
+      _previewBody = note.body;
       _loadedPath = note.path;
     }
   }
@@ -578,9 +598,10 @@ class _EditorPaneState extends State<EditorPane> {
   Widget _preview(Note note) {
     final scale = context
         .select<VaultController, double>((c) => c.settings.editorScale);
-    // Render wiki-links as their display text for now (milestone 1).
+    // Render the debounced body (not note.body) so parsing is throttled.
+    final source = _previewBody;
     final rendered =
-        LineReminders.linkify(Checklist.linkify(note.body)).replaceAllMapped(
+        LineReminders.linkify(Checklist.linkify(source)).replaceAllMapped(
       RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]'),
       (m) => '**${(m.group(2) ?? m.group(1))!.trim()}**',
     );
@@ -596,7 +617,8 @@ class _EditorPaneState extends State<EditorPane> {
         if (href == null || !href.startsWith('checkbox:')) return;
         final line = int.tryParse(href.substring('checkbox:'.length));
         if (line == null) return;
-        final toggled = Checklist.toggleLine(note.body, line);
+        // Toggle against the rendered source so the line index matches.
+        final toggled = Checklist.toggleLine(source, line);
         if (toggled != null) _setBody(toggled);
       },
       sizedImageBuilder: (config) {
@@ -860,24 +882,26 @@ class _LineNumbers extends StatelessWidget {
       animation: text,
       builder: (context, _) {
         final lines = '\n'.allMatches(text.text).length + 1;
+        // One Text with all numbers — a per-line widget column re-lays out
+        // every line on each keystroke, which lags on long notes.
+        final buffer = StringBuffer();
+        for (var i = 1; i <= lines; i++) {
+          buffer.write(i);
+          if (i < lines) buffer.write('\n');
+        }
         return Container(
           width: 40,
           padding: const EdgeInsets.only(right: 8),
           alignment: Alignment.topRight,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              for (var i = 1; i <= lines; i++)
-                Text(
-                  '$i',
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    height: 1.5,
-                    fontSize: 14 * scale,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-            ],
+          child: Text(
+            buffer.toString(),
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              fontFamily: 'monospace',
+              height: 1.5,
+              fontSize: 14 * scale,
+              color: Colors.grey.shade600,
+            ),
           ),
         );
       },

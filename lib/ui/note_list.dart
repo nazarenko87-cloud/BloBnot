@@ -45,8 +45,7 @@ class _NoteListState extends State<NoteList> {
   String? _glyphFilter;
 
   int _compare(Note a, Note b) => switch (_sort) {
-        _Sort.name =>
-          a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+        _Sort.name => a.titleLower.compareTo(b.titleLower),
         _Sort.date => b.modified.compareTo(a.modified),
         _Sort.size => b.body.length.compareTo(a.body.length),
       };
@@ -54,11 +53,10 @@ class _NoteListState extends State<NoteList> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<VaultController>();
+    final q = _query.toLowerCase();
     final filtered = controller.notes
         .where((n) =>
-            _query.isEmpty ||
-            n.title.toLowerCase().contains(_query.toLowerCase()) ||
-            n.body.toLowerCase().contains(_query.toLowerCase()))
+            q.isEmpty || n.titleLower.contains(q) || n.bodyLower.contains(q))
         .where(
           (n) => _glyphFilter == null || controller.glyphFor(n) == _glyphFilter,
         )

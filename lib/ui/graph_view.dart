@@ -33,10 +33,12 @@ class _GraphViewState extends State<GraphView>
   String _signature = '';
   int? _dragging;
 
-  @override
-  void initState() {
-    super.initState();
-    _ticker.start();
+  /// Below this total kinetic energy the layout is considered settled and the
+  /// ticker is stopped, so an idle graph costs zero frames.
+  static const _sleepEnergy = 0.05;
+
+  void _wake() {
+    if (!_ticker.isActive) _ticker.start();
   }
 
   @override
@@ -64,13 +66,17 @@ class _GraphViewState extends State<GraphView>
     if (sig.toString() == _signature) return;
     _signature = sig.toString();
 
+    // Preserve positions of nodes that survive the rebuild so the layout
+    // does not jump when only a link changes.
+    final oldPos = {for (final n in _nodes) n.title: n.pos};
     final byTitle = {for (final n in notes) n.title: n.path};
     final nodes = <_Node>[];
     final index = <String, int>{};
     for (final n in notes) {
       index[n.title.toLowerCase()] = nodes.length;
       nodes.add(_Node(n.title, byTitle[n.title])
-        ..pos = Offset(_rng.nextDouble() * 300, _rng.nextDouble() * 300));
+        ..pos = oldPos[n.title] ??
+            Offset(_rng.nextDouble() * 300, _rng.nextDouble() * 300));
     }
     final edges = <(int, int)>[];
     for (final n in notes) {
@@ -82,10 +88,14 @@ class _GraphViewState extends State<GraphView>
     }
     _nodes = nodes;
     _edges = edges;
+    _wake(); // re-settle the new layout
   }
 
   void _step() {
-    if (_nodes.isEmpty) return;
+    if (_nodes.isEmpty) {
+      _ticker.stop();
+      return;
+    }
     const repulsion = 1600.0;
     const springLen = 90.0;
     const springK = 0.02;
@@ -115,11 +125,15 @@ class _GraphViewState extends State<GraphView>
       if (!a.pinned && _dragging != from) a.vel += f;
       if (!b.pinned && _dragging != to) b.vel -= f;
     }
+    var energy = 0.0;
     for (var i = 0; i < _nodes.length; i++) {
       if (_nodes[i].pinned || _dragging == i) continue;
       _nodes[i].pos += _nodes[i].vel;
+      energy += _nodes[i].vel.distanceSquared;
     }
     if (mounted) setState(() {});
+    // Stop animating once the layout has settled (dragging keeps it awake).
+    if (_dragging == null && energy < _sleepEnergy) _ticker.stop();
   }
 
   Offset _paintCenter = const Offset(150, 200);
@@ -135,13 +149,11 @@ class _GraphViewState extends State<GraphView>
   Widget build(BuildContext context) {
     final controller = context.watch<VaultController>();
     _rebuildIfNeeded(controller.notes);
+    final glyphByTitle = {
+      for (final n in controller.notes) n.title: controller.glyphFor(n),
+    };
     for (final node in _nodes) {
-      for (final n in controller.notes) {
-        if (n.title == node.title) {
-          node.glyph = controller.glyphFor(n);
-          break;
-        }
-      }
+      node.glyph = glyphByTitle[node.title];
     }
     final accent = Theme.of(context).colorScheme.primary;
     final currentTitle = controller.current?.title;
@@ -161,17 +173,29 @@ class _GraphViewState extends State<GraphView>
             ),
             Expanded(
               child: GestureDetector(
-                onPanStart: (d) => setState(() => _dragging = _hitTest(d.localPosition)),
+                onPanStart: (d) => setState(() {
+                  _dragging = _hitTest(d.localPosition);
+                  _wake();
+                }),
                 onPanUpdate: (d) {
                   if (_dragging != null) {
-                    setState(() => _nodes[_dragging!].pos = d.localPosition);
+                    setState(() {
+                      _nodes[_dragging!].pos = d.localPosition;
+                      _nodes[_dragging!].vel = Offset.zero;
+                    });
                   }
                 },
-                onPanEnd: (_) => setState(() => _dragging = null),
+                onPanEnd: (_) => setState(() {
+                  _dragging = null;
+                  _wake();
+                }),
                 onDoubleTapDown: (d) {
                   final hit = _hitTest(d.localPosition);
                   if (hit != null) {
-                    setState(() => _nodes[hit].pinned = !_nodes[hit].pinned);
+                    setState(() {
+                      _nodes[hit].pinned = !_nodes[hit].pinned;
+                      _wake();
+                    });
                   }
                 },
                 onTapUp: (d) {

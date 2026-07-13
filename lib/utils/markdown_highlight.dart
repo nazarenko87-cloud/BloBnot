@@ -85,7 +85,15 @@ List<TextSpan> highlightMarkdown(
 }
 
 /// TextEditingController that renders its value with markdown highlighting.
+///
+/// The highlighted spans are cached and only recomputed when the text or the
+/// base style actually changes, so idle repaints (cursor blink, focus) are
+/// cheap even for long notes.
 class HighlightingTextController extends TextEditingController {
+  String? _cacheText;
+  TextStyle? _cacheBase;
+  List<TextSpan>? _cacheSpans;
+
   @override
   TextSpan buildTextSpan({
     required BuildContext context,
@@ -93,13 +101,18 @@ class HighlightingTextController extends TextEditingController {
     required bool withComposing,
   }) {
     final base = style ?? const TextStyle();
-    final accent = Theme.of(context).colorScheme.primary;
-    final palette = HighlightPalette(
-      heading: accent,
-      link: accent,
-      tag: const Color(0xFFE0C24F),
-      code: const Color(0xFF7DD8C8),
-    );
-    return TextSpan(children: highlightMarkdown(text, base, palette));
+    if (_cacheSpans == null || _cacheText != text || _cacheBase != base) {
+      final accent = Theme.of(context).colorScheme.primary;
+      final palette = HighlightPalette(
+        heading: accent,
+        link: accent,
+        tag: const Color(0xFFE0C24F),
+        code: const Color(0xFF7DD8C8),
+      );
+      _cacheSpans = highlightMarkdown(text, base, palette);
+      _cacheText = text;
+      _cacheBase = base;
+    }
+    return TextSpan(children: _cacheSpans);
   }
 }
