@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../main.dart' show kAppVersion;
 import '../models/note.dart';
 import '../state/vault_controller.dart';
 import 'glyph_avatar.dart';
@@ -45,29 +46,36 @@ class _NoteListState extends State<NoteList> {
   String? _glyphFilter;
 
   int _compare(Note a, Note b) => switch (_sort) {
-        _Sort.name => a.titleLower.compareTo(b.titleLower),
-        _Sort.date => b.modified.compareTo(a.modified),
-        _Sort.size => b.body.length.compareTo(a.body.length),
-      };
+    _Sort.name => a.titleLower.compareTo(b.titleLower),
+    _Sort.date => b.modified.compareTo(a.modified),
+    _Sort.size => b.body.length.compareTo(a.body.length),
+  };
 
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<VaultController>();
+    final accent = Theme.of(context).colorScheme.primary;
     final q = _query.toLowerCase();
-    final filtered = controller.notes
-        .where((n) =>
-            q.isEmpty || n.titleLower.contains(q) || n.bodyLower.contains(q))
-        .where(
-          (n) => _glyphFilter == null || controller.glyphFor(n) == _glyphFilter,
-        )
-        .toList()
-      ..sort(_compare);
-    final pinned =
-        filtered.where((n) => controller.isPinned(n.title)).toList();
-    final rest =
-        filtered.where((n) => !controller.isPinned(n.title)).toList();
-    final rootNotes =
-        rest.where((n) => controller.projectOf(n).isEmpty).toList();
+    final filtered =
+        controller.notes
+            .where(
+              (n) =>
+                  q.isEmpty ||
+                  n.titleLower.contains(q) ||
+                  n.bodyLower.contains(q),
+            )
+            .where(
+              (n) =>
+                  _glyphFilter == null ||
+                  controller.glyphFor(n) == _glyphFilter,
+            )
+            .toList()
+          ..sort(_compare);
+    final pinned = filtered.where((n) => controller.isPinned(n.title)).toList();
+    final rest = filtered.where((n) => !controller.isPinned(n.title)).toList();
+    final rootNotes = rest
+        .where((n) => controller.projectOf(n).isEmpty)
+        .toList();
     final byProject = <String, List<Note>>{
       for (final name in controller.projects) name: [],
     };
@@ -78,12 +86,88 @@ class _NoteListState extends State<NoteList> {
 
     return Column(
       children: [
+        // Logo header (v2.0 look).
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 4, 8),
+          padding: const EdgeInsets.fromLTRB(16, 16, 12, 10),
           child: Row(
             children: [
-              Text('Notes  ${controller.notes.length}',
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                alignment: Alignment.center,
+                child: const Text(
+                  'B',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'BloBnot',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'v$kAppVersion',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+              ),
+            ],
+          ),
+        ),
+        // Search + round add button.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 12, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  decoration: InputDecoration(
+                    hintText: 'Search notes…',
+                    prefixIcon: const Icon(Icons.search, size: 18),
+                    isDense: true,
+                    filled: true,
+                    fillColor: accent.withValues(alpha: 0.06),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  onChanged: (v) => setState(() => _query = v),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Material(
+                color: accent,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: widget.onNew,
+                  child: const SizedBox(
+                    width: 34,
+                    height: 34,
+                    child: Icon(Icons.add, size: 20, color: Colors.white),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        // "Notes N" with sort + new-project affordances.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
+          child: Row(
+            children: [
+              Text(
+                'Notes  ${controller.notes.length}',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
               const Spacer(),
               PopupMenuButton<_Sort>(
                 tooltip: 'Sort',
@@ -103,25 +187,7 @@ class _NoteListState extends State<NoteList> {
                 icon: const Icon(Icons.create_new_folder_outlined, size: 18),
                 onPressed: () => _newProject(context),
               ),
-              IconButton(
-                tooltip: 'New note',
-                style: _compactButton,
-                icon: const Icon(Icons.add, size: 20),
-                onPressed: widget.onNew,
-              ),
             ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: TextField(
-            decoration: const InputDecoration(
-              hintText: 'Search notes…',
-              prefixIcon: Icon(Icons.search, size: 18),
-              isDense: true,
-              border: OutlineInputBorder(),
-            ),
-            onChanged: (v) => setState(() => _query = v),
           ),
         ),
         if (_glyphFilter != null)
@@ -136,10 +202,7 @@ class _NoteListState extends State<NoteList> {
             ),
           ),
         if (_query.isEmpty && controller.recentNotes.length > 1)
-          _RecentRow(
-            notes: controller.recentNotes,
-            onTap: controller.select,
-          ),
+          _RecentRow(notes: controller.recentNotes, onTap: controller.select),
         const SizedBox(height: 8),
         Expanded(
           child: ListView(
@@ -165,26 +228,30 @@ class _NoteListState extends State<NoteList> {
                       leading: ReorderableDragStartListener(
                         index: i,
                         child: Pulse(
-                          enabled: e.value
-                              .any((n) => controller.hasAnyReminder(n)),
+                          enabled: e.value.any(
+                            (n) => controller.hasAnyReminder(n),
+                          ),
                           child: Icon(
                             Icons.folder,
                             size: 18,
                             color: controller.colorOf(e.key) != null
                                 ? kProjectColors[controller.colorOf(e.key)! %
-                                    kProjectColors.length]
-                                : Theme.of(context)
-                                    .colorScheme
-                                    .onSurface
-                                    .withValues(alpha: 0.5),
+                                      kProjectColors.length]
+                                : Theme.of(context).colorScheme.onSurface
+                                      .withValues(alpha: 0.5),
                           ),
                         ),
                       ),
+                      tilePadding: const EdgeInsets.symmetric(horizontal: 12),
                       title: Text(
-                        '${e.key}  ${e.value.length}',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
+                        '${e.key.toUpperCase()}   ${e.value.length}',
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.5),
                         ),
                       ),
                       trailing: PopupMenuButton<String>(
@@ -193,15 +260,15 @@ class _NoteListState extends State<NoteList> {
                         icon: const Icon(Icons.more_horiz, size: 16),
                         onSelected: (v) => switch (v) {
                           'color' => _pickColor(context, e.key),
-                          'delete' => _deleteProject(context, e.key,
-                              e.value.length),
+                          'delete' => _deleteProject(
+                            context,
+                            e.key,
+                            e.value.length,
+                          ),
                           _ => null,
                         },
                         itemBuilder: (context) => const [
-                          PopupMenuItem(
-                            value: 'color',
-                            child: Text('Colour…'),
-                          ),
+                          PopupMenuItem(value: 'color', child: Text('Colour…')),
                           PopupMenuItem(
                             value: 'delete',
                             child: Text('Delete project'),
@@ -218,11 +285,23 @@ class _NoteListState extends State<NoteList> {
             ],
           ),
         ),
-        const Divider(height: 1),
-        TextButton.icon(
-          icon: const Icon(Icons.archive_outlined, size: 16),
-          label: const Text('Archive'),
-          onPressed: () => _showArchive(context),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.archive_outlined, size: 16),
+              label: const Text('Archive'),
+              style: OutlinedButton.styleFrom(
+                shape: const StadiumBorder(),
+                side: BorderSide(color: Theme.of(context).dividerColor),
+                foregroundColor: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.7),
+              ),
+              onPressed: () => _showArchive(context),
+            ),
+          ),
         ),
       ],
     );
@@ -240,8 +319,8 @@ class _NoteListState extends State<NoteList> {
       onGlyphTap: glyph == null
           ? null
           : () => setState(
-                () => _glyphFilter = _glyphFilter == glyph ? null : glyph,
-              ),
+              () => _glyphFilter = _glyphFilter == glyph ? null : glyph,
+            ),
       onTap: () => controller.select(note),
       onPin: () => controller.togglePin(note.title),
       onArchive: () => controller.archiveNote(note),
@@ -252,8 +331,7 @@ class _NoteListState extends State<NoteList> {
 
   Future<void> _setGlyph(BuildContext context, Note note) async {
     final controller = context.read<VaultController>();
-    final ctrl =
-        TextEditingController(text: controller.glyphFor(note) ?? '');
+    final ctrl = TextEditingController(text: controller.glyphFor(note) ?? '');
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -310,7 +388,7 @@ class _NoteListState extends State<NoteList> {
           noteCount == 0
               ? 'The empty folder will be removed.'
               : '$noteCount note(s) inside will be moved to the archive, '
-                  'then the folder will be removed.',
+                    'then the folder will be removed.',
         ),
         actions: [
           TextButton(
@@ -426,10 +504,7 @@ class _NoteListState extends State<NoteList> {
                             ),
                             IconButton(
                               tooltip: 'Delete forever',
-                              icon: const Icon(
-                                Icons.delete_forever,
-                                size: 18,
-                              ),
+                              icon: const Icon(Icons.delete_forever, size: 18),
                               onPressed: () async {
                                 await controller.deleteArchivedForever(note);
                                 if (context.mounted) Navigator.pop(context);
@@ -502,10 +577,7 @@ class _RecentRow extends StatelessWidget {
                 labelPadding: const EdgeInsets.symmetric(horizontal: 2),
                 backgroundColor: accent.withValues(alpha: 0.10),
                 side: BorderSide(color: accent.withValues(alpha: 0.25)),
-                label: Text(
-                  note.title,
-                  style: const TextStyle(fontSize: 11),
-                ),
+                label: Text(note.title, style: const TextStyle(fontSize: 11)),
                 onPressed: () => onTap(note),
               );
             },
@@ -522,14 +594,19 @@ class _SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Uppercase, letter-spaced, muted — the v2.0 section header look.
+    final muted = Theme.of(
+      context,
+    ).colorScheme.onSurface.withValues(alpha: 0.45);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Text(
-        text,
+        text.toUpperCase(),
         style: TextStyle(
-          fontSize: 11,
+          fontSize: 10.5,
           fontWeight: FontWeight.w700,
-          color: Theme.of(context).colorScheme.primary,
+          letterSpacing: 0.8,
+          color: muted,
         ),
       ),
     );
@@ -568,56 +645,61 @@ class _NoteTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
-    return ListTile(
-      dense: true,
-      selected: selected,
-      selectedTileColor: accent.withValues(alpha: 0.12),
-      leading: GlyphAvatar(
-        note: note,
-        glyph: glyph,
-        style: glyphStyle,
-        pulse: hasReminder,
-        onTap: onGlyphTap,
-      ),
-      title: Row(
-        children: [
-          Flexible(
-            child: Text(
-              note.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+    // Rounded highlight pill for the selected note (v2.0 look).
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+      child: ListTile(
+        dense: true,
+        tileColor: selected ? accent.withValues(alpha: 0.14) : null,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+        leading: GlyphAvatar(
+          note: note,
+          glyph: glyph,
+          style: glyphStyle,
+          pulse: hasReminder,
+          onTap: onGlyphTap,
+        ),
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(
+                note.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-          ),
-          if (pinned) ...[
-            const SizedBox(width: 4),
-            Icon(Icons.push_pin, size: 12, color: accent),
+            if (pinned) ...[
+              const SizedBox(width: 4),
+              Icon(Icons.push_pin, size: 12, color: accent),
+            ],
+            if (hasReminder) ...[
+              const SizedBox(width: 4),
+              Icon(Icons.notifications_active, size: 13, color: accent),
+            ],
           ],
-          if (hasReminder) ...[
-            const SizedBox(width: 4),
-            Icon(Icons.notifications_active, size: 13, color: accent),
+        ),
+        trailing: PopupMenuButton<String>(
+          icon: const Icon(Icons.more_horiz, size: 18),
+          onSelected: (v) => switch (v) {
+            'pin' => onPin(),
+            'glyph' => onSetGlyph(),
+            'archive' => onArchive(),
+            'delete' => onDelete(),
+            _ => null,
+          },
+          itemBuilder: (context) => [
+            PopupMenuItem(
+              value: 'pin',
+              child: Text(pinned ? 'Unpin' : 'Pin to top'),
+            ),
+            const PopupMenuItem(value: 'glyph', child: Text('Set glyph…')),
+            const PopupMenuItem(value: 'archive', child: Text('Archive')),
+            const PopupMenuItem(value: 'delete', child: Text('Delete')),
           ],
-        ],
+        ),
+        onTap: onTap,
       ),
-      trailing: PopupMenuButton<String>(
-        icon: const Icon(Icons.more_horiz, size: 18),
-        onSelected: (v) => switch (v) {
-          'pin' => onPin(),
-          'glyph' => onSetGlyph(),
-          'archive' => onArchive(),
-          'delete' => onDelete(),
-          _ => null,
-        },
-        itemBuilder: (context) => [
-          PopupMenuItem(
-            value: 'pin',
-            child: Text(pinned ? 'Unpin' : 'Pin to top'),
-          ),
-          const PopupMenuItem(value: 'glyph', child: Text('Set glyph…')),
-          const PopupMenuItem(value: 'archive', child: Text('Archive')),
-          const PopupMenuItem(value: 'delete', child: Text('Delete')),
-        ],
-      ),
-      onTap: onTap,
     );
   }
 }

@@ -45,10 +45,11 @@ class AttachmentStore {
 
   /// Open the attachment with the default system application (Windows).
   Future<void> open(String name) async {
-    await Process.start(
-      'cmd',
-      ['/c', 'start', '', pathOf(name)],
-      runInShell: false,
-    );
+    await Process.start('cmd', [
+      '/c',
+      'start',
+      '',
+      pathOf(name),
+    ], runInShell: false);
   }
 }

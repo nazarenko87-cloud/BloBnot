@@ -21,7 +21,7 @@ import '../utils/line_reminders.dart';
 /// hit the file system on every keystroke.
 class VaultController extends ChangeNotifier {
   VaultController({PasswordStore? passwordStore})
-      : passwordStore = passwordStore ?? PasswordStore();
+    : passwordStore = passwordStore ?? PasswordStore();
 
   final PasswordStore passwordStore;
 
@@ -70,9 +70,8 @@ class VaultController extends ChangeNotifier {
 
   DateTime? reminderFor(String title) => _reminders[title];
   bool isPinned(String title) => _pinned.contains(title);
-  List<String> get projects => List.unmodifiable(
-        ProjectOrderStore.applyOrder(_projects, _projectOrder),
-      );
+  List<String> get projects =>
+      List.unmodifiable(ProjectOrderStore.applyOrder(_projects, _projectOrder));
 
   /// Recently opened notes (most-recent first) that still exist.
   List<Note> get recentNotes {
@@ -170,9 +169,11 @@ class VaultController extends ChangeNotifier {
   List<Note> backlinksTo(String title) {
     final target = title.toLowerCase();
     return _notes
-        .where((n) =>
-            n.title.toLowerCase() != target &&
-            n.outgoingLinks.any((l) => l.toLowerCase() == target))
+        .where(
+          (n) =>
+              n.title.toLowerCase() != target &&
+              n.outgoingLinks.any((l) => l.toLowerCase() == target),
+        )
         .toList();
   }
 
@@ -321,12 +322,13 @@ class VaultController extends ChangeNotifier {
     String? subfolder,
     String? body,
   }) async {
-    final note =
-        await _storage!.create(title, subfolder: subfolder, body: body);
-    _notes.add(note);
-    _notes.sort(
-      (a, b) => a.titleLower.compareTo(b.titleLower),
+    final note = await _storage!.create(
+      title,
+      subfolder: subfolder,
+      body: body,
     );
+    _notes.add(note);
+    _notes.sort((a, b) => a.titleLower.compareTo(b.titleLower));
     _current = note;
     _openPaths.add(note.path);
     _touchRecent(note);

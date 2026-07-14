@@ -40,10 +40,12 @@ List<TextSpan> highlightMarkdown(
   for (var i = 0; i < lines.length; i++) {
     final line = i < lines.length - 1 ? '${lines[i]}\n' : lines[i];
     if (_headingLine.hasMatch(line)) {
-      spans.add(TextSpan(
-        text: line,
-        style: base.copyWith(color: p.heading, fontWeight: FontWeight.w700),
-      ));
+      spans.add(
+        TextSpan(
+          text: line,
+          style: base.copyWith(color: p.heading, fontWeight: FontWeight.w700),
+        ),
+      );
       continue;
     }
     var pos = 0;
@@ -53,10 +55,12 @@ List<TextSpan> highlightMarkdown(
       if (marker.group(1)!.isNotEmpty) {
         spans.add(TextSpan(text: marker.group(1), style: base));
       }
-      spans.add(TextSpan(
-        text: marker.group(2),
-        style: base.copyWith(color: p.link, fontWeight: FontWeight.w700),
-      ));
+      spans.add(
+        TextSpan(
+          text: marker.group(2),
+          style: base.copyWith(color: p.link, fontWeight: FontWeight.w700),
+        ),
+      );
       pos = marker.end;
     }
     for (final m in _inline.allMatches(line)) {
@@ -66,12 +70,13 @@ List<TextSpan> highlightMarkdown(
       }
       final token = m.group(0)!;
       final style = switch (true) {
-        _ when m.group(1) != null =>
-          base.copyWith(color: p.link, fontWeight: FontWeight.w600),
+        _ when m.group(1) != null => base.copyWith(
+          color: p.link,
+          fontWeight: FontWeight.w600,
+        ),
         _ when m.group(2) != null => base.copyWith(color: p.code),
         _ when m.group(3) != null => base.copyWith(color: p.tag),
-        _ when m.group(4) != null =>
-          base.copyWith(fontWeight: FontWeight.w700),
+        _ when m.group(4) != null => base.copyWith(fontWeight: FontWeight.w700),
         _ => base.copyWith(color: p.link),
       };
       spans.add(TextSpan(text: token, style: style));

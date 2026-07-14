@@ -14,6 +14,35 @@ import 'lock_screen.dart';
 import 'note_list.dart';
 import 'open_tabs.dart';
 import 'settings_dialog.dart';
+import 'theme.dart';
+
+/// A rounded, softly-shadowed floating panel — the building block of the
+/// card-based v2.0 shell.
+class ShellCard extends StatelessWidget {
+  const ShellCard({super.key, required this.child, this.clip = true});
+
+  final Widget child;
+  final bool clip;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    // Outer container carries only the soft shadow (no colour), so it does
+    // not sit as a coloured DecoratedBox between ListTiles and their Material.
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(kCardRadius),
+        boxShadow: cardShadow(dark),
+      ),
+      child: Material(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(kCardRadius),
+        clipBehavior: clip ? Clip.antiAlias : Clip.none,
+        child: child,
+      ),
+    );
+  }
+}
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -47,65 +76,41 @@ class _HomePageState extends State<HomePage> {
         const SingleActivator(LogicalKeyboardKey.keyP, control: true): () =>
             _quickSwitcher(context),
       },
+      // Card-based v2.0 shell: floating rounded panels on the page colour.
       child: Scaffold(
-        appBar: AppBar(
-          titleSpacing: 12,
-          title: Row(
+        body: Padding(
+          padding: const EdgeInsets.all(kShellGap),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Image.asset('assets/icon.png', width: 22, height: 22),
-              const SizedBox(width: 8),
-              const Text(
-                'BloBnot',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'v$kAppVersion',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              _rail(context),
+              const SizedBox(width: kShellGap),
+              Expanded(
+                child: _showDashboard
+                    ? ShellCard(
+                        child: DashboardView(
+                          onOpenNote: () =>
+                              setState(() => _showDashboard = false),
+                        ),
+                      )
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (_showList) ...[
+                            SizedBox(
+                              width: 260,
+                              child: ShellCard(
+                                child: NoteList(onNew: () => _newNote(context)),
+                              ),
+                            ),
+                            const SizedBox(width: kShellGap),
+                          ],
+                          Expanded(child: _editorAndGraph(context)),
+                        ],
+                      ),
               ),
             ],
           ),
-          actions: [
-            IconButton(
-              tooltip: 'Fullscreen',
-              icon: const Icon(Icons.fullscreen),
-              onPressed: () async {
-                final fs = await windowManager.isFullScreen();
-                await windowManager.setFullScreen(!fs);
-              },
-            ),
-            IconButton(
-              tooltip: 'Calculator',
-              icon: const Icon(Icons.calculate_outlined),
-              onPressed: () => showCalculatorDialog(context),
-            ),
-            const SizedBox(width: 8),
-          ],
-        ),
-        // Conversion layout: all app functions live on the left rail.
-        body: Row(
-          children: [
-            _rail(context),
-            const VerticalDivider(width: 1),
-            Expanded(
-              child: _showDashboard
-                  ? DashboardView(
-                      onOpenNote: () =>
-                          setState(() => _showDashboard = false),
-                    )
-                  : Row(
-                      children: [
-                        if (_showList)
-                          SizedBox(
-                            width: 260,
-                            child: NoteList(onNew: () => _newNote(context)),
-                          ),
-                        if (_showList) const VerticalDivider(width: 1),
-                        Expanded(child: _editorAndGraph(context)),
-                      ],
-                    ),
-            ),
-          ],
         ),
       ),
     );
@@ -115,68 +120,100 @@ class _HomePageState extends State<HomePage> {
     final accent = Theme.of(context).colorScheme.primary;
     Widget item(IconData icon, String tip, bool active, VoidCallback onTap) =>
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(vertical: 3),
           child: IconButton(
             tooltip: tip,
             isSelected: active,
             style: IconButton.styleFrom(
-              backgroundColor:
-                  active ? accent.withValues(alpha: 0.18) : null,
+              backgroundColor: active ? accent.withValues(alpha: 0.18) : null,
             ),
             icon: Icon(icon, size: 22, color: active ? accent : null),
             onPressed: onTap,
           ),
         );
 
-    return Container(
-      width: 52,
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        children: [
-          item(
-            Icons.description_outlined,
-            'Notes',
-            !_showDashboard,
-            () => setState(() => _showDashboard = false),
+    return ShellCard(
+      child: SizedBox(
+        width: 56,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Column(
+            children: [
+              // App mark at the very top of the rail.
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: const Text(
+                  'B',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              item(
+                Icons.description_outlined,
+                'Notes',
+                !_showDashboard,
+                () => setState(() => _showDashboard = false),
+              ),
+              item(
+                Icons.dashboard_outlined,
+                'Dashboard',
+                _showDashboard,
+                () => setState(() => _showDashboard = true),
+              ),
+              item(
+                Icons.view_sidebar_outlined,
+                _showList ? 'Hide notes list' : 'Show notes list',
+                _showList,
+                () => setState(() => _showList = !_showList),
+              ),
+              item(
+                Icons.bolt,
+                'Quick switcher (Ctrl+P)',
+                false,
+                () => _quickSwitcher(context),
+              ),
+              item(
+                Icons.hub_outlined,
+                _showGraph ? 'Hide graph' : 'Show graph',
+                _showGraph,
+                () => setState(() => _showGraph = !_showGraph),
+              ),
+              const Spacer(),
+              item(
+                Icons.calculate_outlined,
+                'Calculator',
+                false,
+                () => showCalculatorDialog(context),
+              ),
+              item(Icons.fullscreen, 'Fullscreen', false, () async {
+                final fs = await windowManager.isFullScreen();
+                await windowManager.setFullScreen(!fs);
+              }),
+              item(
+                Icons.settings_outlined,
+                'Settings',
+                false,
+                () => showSettingsDialog(context),
+              ),
+              item(
+                Icons.info_outline,
+                'About',
+                false,
+                () => _showAbout(context),
+              ),
+            ],
           ),
-          item(
-            Icons.dashboard_outlined,
-            'Dashboard',
-            _showDashboard,
-            () => setState(() => _showDashboard = true),
-          ),
-          item(
-            Icons.view_sidebar_outlined,
-            _showList ? 'Hide notes list' : 'Show notes list',
-            _showList,
-            () => setState(() => _showList = !_showList),
-          ),
-          item(
-            Icons.bolt,
-            'Quick switcher (Ctrl+P)',
-            false,
-            () => _quickSwitcher(context),
-          ),
-          item(
-            Icons.hub_outlined,
-            _showGraph ? 'Hide graph' : 'Show graph',
-            _showGraph,
-            () => setState(() => _showGraph = !_showGraph),
-          ),
-          const Spacer(),
-          item(
-            Icons.settings_outlined,
-            'Settings',
-            false,
-            () => showSettingsDialog(context),
-          ),
-          item(
-            Icons.info_outline,
-            'About',
-            false,
-            () => _showAbout(context),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -220,8 +257,7 @@ class _HomePageState extends State<HomePage> {
                   for (final n in matches)
                     ListTile(
                       dense: true,
-                      leading: const Icon(Icons.description_outlined,
-                          size: 16),
+                      leading: const Icon(Icons.description_outlined, size: 16),
                       title: Text(n.title),
                       onTap: () {
                         controller.select(n);
@@ -267,40 +303,47 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _editorAndGraph(BuildContext context) {
-    return Column(
-      children: [
-        const OpenTabs(),
-        Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final total = constraints.maxWidth;
-              if (!_showGraph) {
-                // Toggled back on from the rail's "Show graph" icon.
-                return const EditorPane();
-              }
-              final graphWidth =
-                  (total * _graphFraction).clamp(180.0, total - 260);
-              return Row(
-                children: [
-                  const Expanded(child: EditorPane()),
-                  _DragHandle(
-                    onDrag: (dx) => setState(() {
-                      _graphFraction =
-                          (_graphFraction - dx / total).clamp(0.18, 0.72);
-                    }),
-                  ),
-                  SizedBox(
-                    width: graphWidth,
-                    child: GraphView(
-                      onHide: () => setState(() => _showGraph = false),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-      ],
+    final editorCard = ShellCard(
+      child: Column(
+        children: [
+          const OpenTabs(),
+          const Expanded(child: EditorPane()),
+        ],
+      ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final total = constraints.maxWidth;
+        if (!_showGraph) {
+          // Toggled back on from the rail's "Show graph" icon.
+          return editorCard;
+        }
+        // Guard the clamp: on a very narrow area (total-260 < 180) the upper
+        // bound would fall below the lower one and throw.
+        final upper = (total - 260) > 180.0 ? (total - 260) : 180.0;
+        final graphWidth = (total * _graphFraction).clamp(180.0, upper);
+        return Row(
+          children: [
+            Expanded(child: editorCard),
+            _DragHandle(
+              onDrag: (dx) => setState(() {
+                _graphFraction = (_graphFraction - dx / total).clamp(
+                  0.18,
+                  0.72,
+                );
+              }),
+            ),
+            SizedBox(
+              width: graphWidth,
+              child: ShellCard(
+                child: GraphView(
+                  onHide: () => setState(() => _showGraph = false),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -359,10 +402,7 @@ class _HomePageState extends State<HomePage> {
                     isDense: true,
                   ),
                   items: [
-                    const DropdownMenuItem(
-                      value: '',
-                      child: Text('(blank)'),
-                    ),
+                    const DropdownMenuItem(value: '', child: Text('(blank)')),
                     for (final t in templates)
                       DropdownMenuItem(value: t.title, child: Text(t.title)),
                   ],
@@ -399,7 +439,6 @@ class _HomePageState extends State<HomePage> {
       body: body,
     );
   }
-
 
   void _showAbout(BuildContext context) {
     showDialog<void>(

@@ -18,9 +18,13 @@ class GlyphStore {
   File get _tagsFile => File(p.join(vaultRoot, 'glyphs.json'));
   File get _overridesFile => File(p.join(vaultRoot, 'glyph_overrides.json'));
 
-  static bool _usable(Object? v) => v is String && v.isNotEmpty && v.length <= 4;
+  static bool _usable(Object? v) =>
+      v is String && v.isNotEmpty && v.length <= 4;
 
-  Future<Map<String, String>> _load(File f, {bool lowercaseKeys = false}) async {
+  Future<Map<String, String>> _load(
+    File f, {
+    bool lowercaseKeys = false,
+  }) async {
     try {
       if (!await f.exists()) return {};
       final raw = jsonDecode(await f.readAsString());

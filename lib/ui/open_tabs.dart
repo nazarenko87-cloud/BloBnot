@@ -16,59 +16,61 @@ class OpenTabs extends StatelessWidget {
     final accent = Theme.of(context).colorScheme.primary;
     final currentPath = controller.current?.path;
 
+    // Rounded pill tabs floating at the top of the editor card (v2.0 look).
     return Container(
-      height: 36,
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
-      ),
-      child: ListView.builder(
+      height: 44,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: tabs.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 6),
         itemBuilder: (context, i) {
           final note = tabs[i];
           final active = note.path == currentPath;
-          return InkWell(
-            onTap: () => controller.select(note),
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 180),
-              padding: const EdgeInsets.only(left: 12, right: 4),
-              decoration: BoxDecoration(
-                color: active ? accent.withValues(alpha: 0.12) : null,
-                border: Border(
-                  bottom: BorderSide(
-                    width: 2,
-                    color: active ? accent : Colors.transparent,
-                  ),
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(
-                    child: Text(
-                      note.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: active ? FontWeight.w700 : FontWeight.w400,
-                        color: active ? accent : null,
+          return Material(
+            color: active
+                ? accent.withValues(alpha: 0.14)
+                : Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => controller.select(note),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 200),
+                padding: const EdgeInsets.only(left: 12, right: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        note.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: active
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                          color: active ? accent : null,
+                        ),
                       ),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'Close tab',
-                    iconSize: 14,
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 22,
-                      minHeight: 22,
+                    IconButton(
+                      tooltip: 'Close tab',
+                      iconSize: 13,
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 24,
+                        minHeight: 24,
+                      ),
+                      icon: const Icon(Icons.close),
+                      onPressed: () => controller.closeTab(note.path),
                     ),
-                    icon: const Icon(Icons.close),
-                    onPressed: () => controller.closeTab(note.path),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           );

@@ -7,12 +7,14 @@ import 'package:path/path.dart' as p;
 /// `~/Downloads/BloknotVault-backup-<stamp>.zip`. Returns the archive path.
 class BackupService {
   static Future<String> backupVault(String vaultRoot) async {
-    final home = Platform.environment['USERPROFILE'] ??
+    final home =
+        Platform.environment['USERPROFILE'] ??
         Platform.environment['HOME'] ??
         '.';
     final now = DateTime.now();
     String two(int v) => v.toString().padLeft(2, '0');
-    final stamp = '${now.year}${two(now.month)}${two(now.day)}-'
+    final stamp =
+        '${now.year}${two(now.month)}${two(now.day)}-'
         '${two(now.hour)}${two(now.minute)}';
     final out = p.join(
       home,

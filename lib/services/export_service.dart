@@ -11,7 +11,8 @@ import '../models/note.dart';
 /// Exports notes to `~/Downloads` as .html or .pdf. Returns the written path.
 class ExportService {
   static String get _downloads {
-    final home = Platform.environment['USERPROFILE'] ??
+    final home =
+        Platform.environment['USERPROFILE'] ??
         Platform.environment['HOME'] ??
         '.';
     return p.join(home, 'Downloads');
@@ -36,7 +37,8 @@ class ExportService {
       _resolveWikiLinks(note.body),
       extensionSet: md.ExtensionSet.gitHubFlavored,
     );
-    final html = '''
+    final html =
+        '''
 <!DOCTYPE html>
 <html>
 <head>
@@ -98,9 +100,9 @@ $body
   }
 
   static String _resolveWikiLinks(String body) => body.replaceAllMapped(
-        RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]'),
-        (m) => '**${(m.group(2) ?? m.group(1))!.trim()}**',
-      );
+    RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]'),
+    (m) => '**${(m.group(2) ?? m.group(1))!.trim()}**',
+  );
 
   /// Strip markdown markers for the plain-text PDF (v1.3 behaviour).
   static String _plainText(String body) => _resolveWikiLinks(body)
@@ -110,9 +112,6 @@ $body
         (m) => m.group(1) ?? '',
       )
       .replaceAll(RegExp(r'^#{1,6}\s*', multiLine: true), '')
-      .replaceAllMapped(
-        RegExp(r'\*{1,2}([^*]+)\*{1,2}'),
-        (m) => m.group(1)!,
-      )
+      .replaceAllMapped(RegExp(r'\*{1,2}([^*]+)\*{1,2}'), (m) => m.group(1)!)
       .replaceAll('`', '');
 }

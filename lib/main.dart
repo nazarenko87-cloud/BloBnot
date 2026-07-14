@@ -9,7 +9,7 @@ import 'ui/home_page.dart';
 import 'ui/theme.dart';
 
 /// App version string surfaced in the About dialog. Keep in sync with pubspec.
-const String kAppVersion = '1.3.0';
+const String kAppVersion = '2.0';
 
 /// Tray/notifications singleton, initialized in [main] on desktop.
 TrayService? trayService;

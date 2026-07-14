@@ -43,7 +43,8 @@ class LineReminders {
     return body.replaceAllMapped(tagPattern, (m) {
       final t = DateTime.tryParse(m.group(1)!.trim());
       if (t == null) return m.group(0)!;
-      final label = '🔔 ${_two(t.day)}.${_two(t.month)} '
+      final label =
+          '🔔 ${_two(t.day)}.${_two(t.month)} '
           '${_two(t.hour)}:${_two(t.minute)}';
       return '[$label](linereminder:${i++})';
     });

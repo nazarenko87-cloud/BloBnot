@@ -13,7 +13,8 @@ class PasswordStore {
   final File _file;
 
   static File _defaultFile() {
-    final home = Platform.environment['USERPROFILE'] ??
+    final home =
+        Platform.environment['USERPROFILE'] ??
         Platform.environment['HOME'] ??
         '.';
     return File(p.join(home, '.bloknot', 'settings.json'));

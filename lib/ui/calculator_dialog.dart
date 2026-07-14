@@ -39,9 +39,9 @@ class _CalculatorDialogState extends State<_CalculatorDialog> {
     if (_result == null) return;
     await Clipboard.setData(ClipboardData(text: _resultText));
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Result copied')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Result copied')));
     }
   }
 

@@ -78,9 +78,12 @@ class _GraphViewState extends State<GraphView>
     final index = <String, int>{};
     for (final n in notes) {
       index[n.title.toLowerCase()] = nodes.length;
-      nodes.add(_Node(n.title, byTitle[n.title])
-        ..pos = oldPos[n.title] ??
-            Offset(_rng.nextDouble() * 300, _rng.nextDouble() * 300));
+      nodes.add(
+        _Node(n.title, byTitle[n.title])
+          ..pos =
+              oldPos[n.title] ??
+              Offset(_rng.nextDouble() * 300, _rng.nextDouble() * 300),
+      );
     }
     final edges = <(int, int)>[];
     for (final n in notes) {
@@ -164,7 +167,10 @@ class _GraphViewState extends State<GraphView>
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        _paintCenter = Offset(constraints.maxWidth / 2, constraints.maxHeight / 2);
+        _paintCenter = Offset(
+          constraints.maxWidth / 2,
+          constraints.maxHeight / 2,
+        );
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -235,7 +241,8 @@ class _GraphViewState extends State<GraphView>
                     accent: accent,
                     surface: Theme.of(context).scaffoldBackgroundColor,
                     currentTitle: currentTitle,
-                    labelColor: Theme.of(context).textTheme.bodySmall?.color ??
+                    labelColor:
+                        Theme.of(context).textTheme.bodySmall?.color ??
                         Colors.grey,
                   ),
                   size: Size.infinite,
@@ -303,7 +310,8 @@ class _GraphPainter extends CustomPainter {
           ..color = ring,
       );
 
-      final inner = node.glyph ??
+      final inner =
+          node.glyph ??
           (node.title.isEmpty
               ? '?'
               : node.title.characters.first.toUpperCase());

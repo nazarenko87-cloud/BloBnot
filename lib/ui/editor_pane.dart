@@ -151,10 +151,9 @@ class _EditorPaneState extends State<EditorPane> {
                     Positioned.fill(
                       child: IgnorePointer(
                         child: Container(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .primary
-                              .withValues(alpha: 0.12),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.12),
                           alignment: Alignment.center,
                           child: const Text(
                             'Drop files to attach',
@@ -171,10 +170,7 @@ class _EditorPaneState extends State<EditorPane> {
             ),
           ),
           _BacklinksPanel(note: note),
-          _AttachmentsPanel(
-            note: note,
-            onAttach: () => _attachFile(context),
-          ),
+          _AttachmentsPanel(note: note, onAttach: () => _attachFile(context)),
         ],
       ),
     );
@@ -215,8 +211,10 @@ class _EditorPaneState extends State<EditorPane> {
               final count = find.allMatches(_textController.text).length;
               if (count > 0) {
                 _setBody(
-                  _textController.text
-                      .replaceAll(find, _replaceController.text),
+                  _textController.text.replaceAll(
+                    find,
+                    _replaceController.text,
+                  ),
                 );
               }
               ScaffoldMessenger.of(context).showSnackBar(
@@ -243,15 +241,15 @@ class _EditorPaneState extends State<EditorPane> {
     try {
       final path = await exporter(note);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Saved: $path')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Saved: $path')));
       }
     } on Exception catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
       }
     }
   }
@@ -286,8 +284,7 @@ class _EditorPaneState extends State<EditorPane> {
     final text = _textController.text;
     if (caret < 2 || text.substring(caret - 2, caret) != '[[') return;
     // Skip if this `[[` is already closed just ahead.
-    if (caret <= text.length - 2 &&
-        text.substring(caret, caret + 2) == ']]') {
+    if (caret <= text.length - 2 && text.substring(caret, caret + 2) == ']]') {
       return;
     }
     final title = await _chooseNoteTitle(context);
@@ -295,10 +292,10 @@ class _EditorPaneState extends State<EditorPane> {
     // `[[` is already typed — insert `title]]` after the caret.
     final at = _textController.selection.baseOffset.clamp(0, text.length);
     final insert = '$title]]';
-    _textController.text =
-        _textController.text.replaceRange(at, at, insert);
-    _textController.selection =
-        TextSelection.collapsed(offset: at + insert.length);
+    _textController.text = _textController.text.replaceRange(at, at, insert);
+    _textController.selection = TextSelection.collapsed(
+      offset: at + insert.length,
+    );
     _commitText();
   }
 
@@ -315,8 +312,9 @@ class _EditorPaneState extends State<EditorPane> {
       sel.isValid ? sel.end : offset,
       link,
     );
-    _textController.selection =
-        TextSelection.collapsed(offset: offset + link.length);
+    _textController.selection = TextSelection.collapsed(
+      offset: offset + link.length,
+    );
     _commitText();
   }
 
@@ -333,9 +331,11 @@ class _EditorPaneState extends State<EditorPane> {
           builder: (context, setDialogState) {
             final q = searchCtrl.text.toLowerCase();
             final matches = controller.notes
-                .where((n) =>
-                    n.path != controller.current?.path &&
-                    n.title.toLowerCase().contains(q))
+                .where(
+                  (n) =>
+                      n.path != controller.current?.path &&
+                      n.title.toLowerCase().contains(q),
+                )
                 .take(10)
                 .toList();
             return SizedBox(
@@ -362,8 +362,7 @@ class _EditorPaneState extends State<EditorPane> {
                   for (final n in matches)
                     ListTile(
                       dense: true,
-                      leading:
-                          const Icon(Icons.description_outlined, size: 16),
+                      leading: const Icon(Icons.description_outlined, size: 16),
                       title: Text(n.title),
                       onTap: () => Navigator.pop(context, n.title),
                     ),
@@ -395,10 +394,14 @@ class _EditorPaneState extends State<EditorPane> {
     );
     final sel = _textController.selection;
     final offset = sel.isValid ? sel.end : _textController.text.length;
-    _textController.text =
-        _textController.text.replaceRange(offset, offset, ' $tag');
-    _textController.selection =
-        TextSelection.collapsed(offset: offset + tag.length + 1);
+    _textController.text = _textController.text.replaceRange(
+      offset,
+      offset,
+      ' $tag',
+    );
+    _textController.selection = TextSelection.collapsed(
+      offset: offset + tag.length + 1,
+    );
     _commitText();
   }
 
@@ -414,8 +417,9 @@ class _EditorPaneState extends State<EditorPane> {
       sel.isValid ? sel.end : offset,
       snippet,
     );
-    _textController.selection =
-        TextSelection.collapsed(offset: offset + snippet.length);
+    _textController.selection = TextSelection.collapsed(
+      offset: offset + snippet.length,
+    );
     controller.editCurrentBody(_textController.text);
   }
 
@@ -476,24 +480,19 @@ class _EditorPaneState extends State<EditorPane> {
                     children: [
                       Flexible(
                         child: Text(
-                          note.path,
+                          _breadcrumb(controller.vaultRoot, note.path),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 11,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primary
-                                .withValues(alpha: 0.8),
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.8),
                           ),
                         ),
                       ),
                       const SizedBox(width: 4),
-                      Icon(
-                        Icons.copy,
-                        size: 11,
-                        color: Colors.grey.shade500,
-                      ),
+                      Icon(Icons.copy, size: 11, color: Colors.grey.shade500),
                     ],
                   ),
                 ),
@@ -536,28 +535,50 @@ class _EditorPaneState extends State<EditorPane> {
               ),
             ],
           ),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: SegmentedButton<ViewMode>(
-              segments: const [
-                ButtonSegment(value: ViewMode.edit, icon: Icon(Icons.edit)),
-                ButtonSegment(
-                  value: ViewMode.split,
-                  icon: Icon(Icons.vertical_split),
-                ),
-                ButtonSegment(
-                  value: ViewMode.preview,
-                  icon: Icon(Icons.visibility),
-                ),
-              ],
-              selected: {_mode},
-              showSelectedIcon: false,
-              onSelectionChanged: (s) => setState(() => _mode = s.first),
+          // Bounded so the FittedBox actually scales it down on narrow cards.
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 132),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: SegmentedButton<ViewMode>(
+                segments: const [
+                  ButtonSegment(value: ViewMode.edit, icon: Icon(Icons.edit)),
+                  ButtonSegment(
+                    value: ViewMode.split,
+                    icon: Icon(Icons.vertical_split),
+                  ),
+                  ButtonSegment(
+                    value: ViewMode.preview,
+                    icon: Icon(Icons.visibility),
+                  ),
+                ],
+                selected: {_mode},
+                showSelectedIcon: false,
+                onSelectionChanged: (s) => setState(() => _mode = s.first),
+              ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  /// Breadcrumb like "Vault / Project / Note.md" from an absolute path.
+  static String _breadcrumb(String? vaultRoot, String path) {
+    if (vaultRoot == null || !path.startsWith(vaultRoot)) return path;
+    final rel = path
+        .substring(vaultRoot.length)
+        .replaceAll('\\', '/')
+        .split('/')
+        .where((s) => s.isNotEmpty)
+        .toList();
+    final vaultName = vaultRoot
+        .replaceAll('\\', '/')
+        .split('/')
+        .where((s) => s.isNotEmpty)
+        .last;
+    return [vaultName, ...rel].join('  /  ');
   }
 
   static String _fmt(DateTime t) =>
@@ -642,8 +663,9 @@ class _EditorPaneState extends State<EditorPane> {
       sel.isValid ? sel.end : offset,
       links.toString(),
     );
-    _textController.selection =
-        TextSelection.collapsed(offset: offset + links.length);
+    _textController.selection = TextSelection.collapsed(
+      offset: offset + links.length,
+    );
     controller.editCurrentBody(_textController.text);
   }
 
@@ -652,19 +674,20 @@ class _EditorPaneState extends State<EditorPane> {
       ViewMode.edit => _editor(context),
       ViewMode.preview => _preview(note),
       ViewMode.split => Row(
-          children: [
-            Expanded(child: _editor(context)),
-            const VerticalDivider(width: 1),
-            Expanded(child: _preview(note)),
-          ],
-        ),
+        children: [
+          Expanded(child: _editor(context)),
+          const VerticalDivider(width: 1),
+          Expanded(child: _preview(note)),
+        ],
+      ),
     };
   }
 
   Widget _editor(BuildContext context) {
     final controller = context.read<VaultController>();
-    final scale = context
-        .select<VaultController, double>((c) => c.settings.editorScale);
+    final scale = context.select<VaultController, double>(
+      (c) => c.settings.editorScale,
+    );
     return Scrollbar(
       controller: _scroll,
       child: SingleChildScrollView(
@@ -695,18 +718,18 @@ class _EditorPaneState extends State<EditorPane> {
                     // Right-click menu gains "Reminder on line…".
                     contextMenuBuilder: (context, editableTextState) =>
                         AdaptiveTextSelectionToolbar.buttonItems(
-                      anchors: editableTextState.contextMenuAnchors,
-                      buttonItems: [
-                        ...editableTextState.contextMenuButtonItems,
-                        ContextMenuButtonItem(
-                          label: 'Reminder on line…',
-                          onPressed: () {
-                            ContextMenuController.removeAny();
-                            _insertLineReminder(context);
-                          },
+                          anchors: editableTextState.contextMenuAnchors,
+                          buttonItems: [
+                            ...editableTextState.contextMenuButtonItems,
+                            ContextMenuButtonItem(
+                              label: 'Reminder on line…',
+                              onPressed: () {
+                                ContextMenuController.removeAny();
+                                _insertLineReminder(context);
+                              },
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
                     onChanged: (v) {
                       controller.editCurrentBody(v);
                       _schedulePreview();
@@ -723,56 +746,57 @@ class _EditorPaneState extends State<EditorPane> {
   }
 
   Widget _preview(Note note) {
-    final scale = context
-        .select<VaultController, double>((c) => c.settings.editorScale);
+    final scale = context.select<VaultController, double>(
+      (c) => c.settings.editorScale,
+    );
     // Render the debounced body (not note.body) so parsing is throttled.
     final source = _previewBody;
-    final rendered =
-        LineReminders.linkify(Checklist.linkify(source)).replaceAllMapped(
-      RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]'),
-      (m) => '**${(m.group(2) ?? m.group(1))!.trim()}**',
-    );
+    final rendered = LineReminders.linkify(Checklist.linkify(source))
+        .replaceAllMapped(
+          RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]'),
+          (m) => '**${(m.group(2) ?? m.group(1))!.trim()}**',
+        );
     return MediaQuery.withClampedTextScaling(
       minScaleFactor: scale,
       maxScaleFactor: scale,
       child: Markdown(
-      data: rendered,
-      selectable: true,
-      padding: const EdgeInsets.all(16),
-      extensionSet: md.ExtensionSet.gitHubFlavored,
-      onTapLink: (text, href, title) {
-        if (href == null || !href.startsWith('checkbox:')) return;
-        final line = int.tryParse(href.substring('checkbox:'.length));
-        if (line == null) return;
-        // Toggle against the rendered source so the line index matches.
-        final toggled = Checklist.toggleLine(source, line);
-        if (toggled != null) _setBody(toggled);
-      },
-      sizedImageBuilder: (config) {
-        final src = config.uri.toString();
-        if (src.startsWith('assets/stickers/')) {
-          // Small squircle emoji-style: crop away the caption text baked
-          // into the sticker's edges, keep just the character.
-          return ClipRSuperellipse(
-            borderRadius: BorderRadius.circular(14),
-            child: SizedBox(
-              width: 44,
-              height: 44,
-              child: ClipRect(
-                child: Align(
-                  widthFactor: 0.8,
-                  heightFactor: 0.7,
-                  child: Image.asset(src, width: 55, height: 63),
+        data: rendered,
+        selectable: true,
+        padding: const EdgeInsets.all(16),
+        extensionSet: md.ExtensionSet.gitHubFlavored,
+        onTapLink: (text, href, title) {
+          if (href == null || !href.startsWith('checkbox:')) return;
+          final line = int.tryParse(href.substring('checkbox:'.length));
+          if (line == null) return;
+          // Toggle against the rendered source so the line index matches.
+          final toggled = Checklist.toggleLine(source, line);
+          if (toggled != null) _setBody(toggled);
+        },
+        sizedImageBuilder: (config) {
+          final src = config.uri.toString();
+          if (src.startsWith('assets/stickers/')) {
+            // Small squircle emoji-style: crop away the caption text baked
+            // into the sticker's edges, keep just the character.
+            return ClipRSuperellipse(
+              borderRadius: BorderRadius.circular(14),
+              child: SizedBox(
+                width: 44,
+                height: 44,
+                child: ClipRect(
+                  child: Align(
+                    widthFactor: 0.8,
+                    heightFactor: 0.7,
+                    child: Image.asset(src, width: 55, height: 63),
+                  ),
                 ),
               ),
-            ),
-          );
-        }
-        if (src.startsWith('assets/')) {
-          return Image.asset(src, width: 72, height: 72);
-        }
-        return Text(config.alt ?? src);
-      },
+            );
+          }
+          if (src.startsWith('assets/')) {
+            return Image.asset(src, width: 72, height: 72);
+          }
+          return Text(config.alt ?? src);
+        },
       ),
     );
   }
@@ -1070,75 +1094,84 @@ class _Toolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
-    Widget btn(IconData icon, String tip, VoidCallback onTap) => IconButton(
-          tooltip: tip,
-          icon: Icon(icon, size: 18),
-          onPressed: onTap,
-        );
+    Widget btn(IconData icon, String tip, VoidCallback onTap) =>
+        IconButton(tooltip: tip, icon: Icon(icon, size: 18), onPressed: onTap);
     Widget sep() => Container(
-          width: 1,
-          height: 22,
-          margin: const EdgeInsets.symmetric(horizontal: 6),
-          color: Theme.of(context).dividerColor,
-        );
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          const SizedBox(width: 8),
-          // Group: linking — wiki link is the flagship action.
-          IconButton.filledTonal(
-            tooltip: 'Wiki link',
-            icon: Icon(Icons.link, size: 22, color: accent),
-            onPressed: () {
-              final sel = controller.selection;
-              if (sel.isValid && !sel.isCollapsed) {
-                _wrap('[[', ']]');
-              } else {
-                onLinkPicker();
-              }
-            },
+      width: 1,
+      height: 22,
+      margin: const EdgeInsets.symmetric(horizontal: 6),
+      color: Theme.of(context).dividerColor,
+    );
+    // Rounded pill container around the toolbar (v2.0 look).
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Theme.of(
+            context,
+          ).colorScheme.onSurface.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              const SizedBox(width: 8),
+              // Group: linking — wiki link is the flagship action.
+              IconButton.filledTonal(
+                tooltip: 'Wiki link',
+                icon: Icon(Icons.link, size: 22, color: accent),
+                onPressed: () {
+                  final sel = controller.selection;
+                  if (sel.isValid && !sel.isCollapsed) {
+                    _wrap('[[', ']]');
+                  } else {
+                    onLinkPicker();
+                  }
+                },
+              ),
+              sep(),
+              // Group: text formatting.
+              btn(Icons.format_bold, 'Bold', () => _wrap('**', '**')),
+              btn(Icons.format_italic, 'Italic', () => _wrap('*', '*')),
+              btn(Icons.title, 'Heading', () => _prefixLine('# ')),
+              sep(),
+              // Group: lists.
+              btn(
+                Icons.format_list_bulleted,
+                'Bullet list',
+                () => _prefixLine('- '),
+              ),
+              btn(
+                Icons.format_list_numbered,
+                'Numbered list',
+                () => _prefixLine('1. '),
+              ),
+              btn(
+                Icons.check_box_outlined,
+                'Checklist',
+                () => _prefixLine('- [ ] '),
+              ),
+              sep(),
+              // Group: insert.
+              btn(Icons.emoji_emotions_outlined, 'Sticker', onSticker),
+              sep(),
+              // Group: export & AI.
+              btn(Icons.code, 'Export HTML', onExportHtml),
+              btn(Icons.picture_as_pdf_outlined, 'Export PDF', onExportPdf),
+              btn(Icons.smart_toy_outlined, 'Copy AI context', onAiContext),
+              sep(),
+              // Big accent paperclip at the very end (original toolbar look);
+              // the toolbar scrolls horizontally, so it can never be clipped.
+              IconButton.filledTonal(
+                tooltip: 'Attach file',
+                icon: Icon(Icons.attach_file, size: 22, color: accent),
+                onPressed: onAttach,
+              ),
+              const SizedBox(width: 8),
+            ],
           ),
-          sep(),
-          // Group: text formatting.
-          btn(Icons.format_bold, 'Bold', () => _wrap('**', '**')),
-          btn(Icons.format_italic, 'Italic', () => _wrap('*', '*')),
-          btn(Icons.title, 'Heading', () => _prefixLine('# ')),
-          sep(),
-          // Group: lists.
-          btn(
-            Icons.format_list_bulleted,
-            'Bullet list',
-            () => _prefixLine('- '),
-          ),
-          btn(
-            Icons.format_list_numbered,
-            'Numbered list',
-            () => _prefixLine('1. '),
-          ),
-          btn(
-            Icons.check_box_outlined,
-            'Checklist',
-            () => _prefixLine('- [ ] '),
-          ),
-          sep(),
-          // Group: insert.
-          btn(Icons.emoji_emotions_outlined, 'Sticker', onSticker),
-          sep(),
-          // Group: export & AI.
-          btn(Icons.code, 'Export HTML', onExportHtml),
-          btn(Icons.picture_as_pdf_outlined, 'Export PDF', onExportPdf),
-          btn(Icons.smart_toy_outlined, 'Copy AI context', onAiContext),
-          sep(),
-          // Big accent paperclip at the very end (original toolbar look);
-          // the toolbar scrolls horizontally, so it can never be clipped.
-          IconButton.filledTonal(
-            tooltip: 'Attach file',
-            icon: Icon(Icons.attach_file, size: 22, color: accent),
-            onPressed: onAttach,
-          ),
-          const SizedBox(width: 8),
-        ],
+        ),
       ),
     );
   }

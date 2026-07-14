@@ -12,7 +12,8 @@ class TrayService with TrayListener, WindowListener {
   /// Called when the window is hidden to the tray (used for auto-lock).
   final void Function() onHidden;
 
-  bool get _isDesktop => Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+  bool get _isDesktop =>
+      Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
   Future<void> init() async {
     if (!_isDesktop) return;

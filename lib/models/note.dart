@@ -34,8 +34,9 @@ class Note {
   }
 
   int? _wordCount;
-  int get wordCount => _wordCount ??=
-      body.trim().isEmpty ? 0 : body.trim().split(RegExp(r'\s+')).length;
+  int get wordCount => _wordCount ??= body.trim().isEmpty
+      ? 0
+      : body.trim().split(RegExp(r'\s+')).length;
 
   /// Estimated reading time in minutes (>=1).
   int get readMinutes => (wordCount / 200).ceil().clamp(1, 9999);
@@ -48,8 +49,9 @@ class Note {
   String? _titleLower;
   String get titleLower => _titleLower ??= title.toLowerCase();
 
-  static final _linkPattern =
-      RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]');
+  static final _linkPattern = RegExp(
+    r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]',
+  );
 
   /// Titles referenced via `[[wiki-links]]` in this note's body.
   Set<String>? _outgoingLinks;

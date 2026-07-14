@@ -86,12 +86,12 @@ class _SettingsDialog extends StatelessWidget {
                                   child: Column(
                                     children: [
                                       Expanded(
-                                        child:
-                                            Container(color: st.darkScaffold),
+                                        child: Container(
+                                          color: st.darkScaffold,
+                                        ),
                                       ),
                                       Expanded(
-                                        child:
-                                            Container(color: st.darkSurface),
+                                        child: Container(color: st.darkSurface),
                                       ),
                                     ],
                                   ),
@@ -100,12 +100,14 @@ class _SettingsDialog extends StatelessWidget {
                                   child: Column(
                                     children: [
                                       Expanded(
-                                        child:
-                                            Container(color: st.lightScaffold),
+                                        child: Container(
+                                          color: st.lightScaffold,
+                                        ),
                                       ),
                                       Expanded(
-                                        child:
-                                            Container(color: st.lightSurface),
+                                        child: Container(
+                                          color: st.lightSurface,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -256,15 +258,15 @@ class _SettingsDialog extends StatelessWidget {
     try {
       final path = await BackupService.backupVault(root);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Backup saved: $path')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Backup saved: $path')));
       }
     } on Exception catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Backup failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Backup failed: $e')));
       }
     }
   }
@@ -289,8 +291,9 @@ class _SettingsDialog extends StatelessWidget {
               TextField(
                 controller: currentCtrl,
                 obscureText: true,
-                decoration:
-                    const InputDecoration(labelText: 'Current password'),
+                decoration: const InputDecoration(
+                  labelText: 'Current password',
+                ),
               ),
             TextField(
               controller: newCtrl,
@@ -318,9 +321,9 @@ class _SettingsDialog extends StatelessWidget {
 
     if (has && !await store.verify(currentCtrl.text)) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Wrong current password')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Wrong current password')));
       }
       return;
     }

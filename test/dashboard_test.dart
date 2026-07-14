@@ -48,7 +48,7 @@ void main() {
     // Cards for both notes; Beta carries its project chip.
     expect(find.text('Alpha'), findsOneWidget);
     expect(find.text('Beta'), findsOneWidget);
-    expect(find.text('Work'), findsOneWidget);
+    expect(find.text('WORK'), findsOneWidget); // project chip is upper-cased
 
     // Tapping a card selects the note and fires the callback.
     await tester.tap(find.text('Beta'));

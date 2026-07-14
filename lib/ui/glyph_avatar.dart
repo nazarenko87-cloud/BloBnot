@@ -52,9 +52,7 @@ class GlyphAvatar extends StatelessWidget {
           style: TextStyle(
             fontSize: glyph != null ? 15 : 13,
             fontWeight: FontWeight.w600,
-            color: fill
-                ? Theme.of(context).colorScheme.surface
-                : accent,
+            color: fill ? Theme.of(context).colorScheme.surface : accent,
           ),
         ),
       ),
@@ -98,10 +96,7 @@ class _MedallionPainter extends CustomPainter {
           Rect.fromCircle(center: center, radius: r),
           Radius.circular(r * 0.45),
         );
-        canvas.drawRRect(
-          rect,
-          Paint()..color = color.withValues(alpha: 0.20),
-        );
+        canvas.drawRRect(rect, Paint()..color = color.withValues(alpha: 0.20));
         canvas.drawRRect(
           rect,
           Paint()
@@ -121,8 +116,7 @@ class _MedallionPainter extends CustomPainter {
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1.6
-            ..color =
-                color.withValues(alpha: progress == null ? 0.55 : 0.18),
+            ..color = color.withValues(alpha: progress == null ? 0.55 : 0.18),
         );
     }
 

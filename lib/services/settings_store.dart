@@ -28,12 +28,12 @@ class VaultSettings {
   });
 
   Map<String, dynamic> toJson() => {
-        'themeMode': themeMode,
-        'themeStyle': themeStyle,
-        'accentIndex': accentIndex,
-        'glyphStyle': glyphStyle,
-        'editorScale': editorScale,
-      };
+    'themeMode': themeMode,
+    'themeStyle': themeStyle,
+    'accentIndex': accentIndex,
+    'glyphStyle': glyphStyle,
+    'editorScale': editorScale,
+  };
 
   factory VaultSettings.fromJson(Map<String, dynamic> j) {
     var mode = (j['themeMode'] as String?) ?? 'system';
@@ -68,14 +68,13 @@ class VaultSettings {
     int? accentIndex,
     String? glyphStyle,
     double? editorScale,
-  }) =>
-      VaultSettings(
-        themeMode: themeMode ?? this.themeMode,
-        themeStyle: themeStyle ?? this.themeStyle,
-        accentIndex: accentIndex ?? this.accentIndex,
-        glyphStyle: glyphStyle ?? this.glyphStyle,
-        editorScale: editorScale ?? this.editorScale,
-      );
+  }) => VaultSettings(
+    themeMode: themeMode ?? this.themeMode,
+    themeStyle: themeStyle ?? this.themeStyle,
+    accentIndex: accentIndex ?? this.accentIndex,
+    glyphStyle: glyphStyle ?? this.glyphStyle,
+    editorScale: editorScale ?? this.editorScale,
+  );
 }
 
 class SettingsStore {
@@ -111,7 +110,8 @@ class AppSettings {
 
   static File get _file {
     if (overrideFile != null) return overrideFile!;
-    final home = Platform.environment['USERPROFILE'] ??
+    final home =
+        Platform.environment['USERPROFILE'] ??
         Platform.environment['HOME'] ??
         '.';
     return File(p.join(home, '.bloknot', 'settings.json'));
