@@ -18,7 +18,11 @@ class _Node {
 }
 
 class GraphView extends StatefulWidget {
-  const GraphView({super.key});
+  const GraphView({super.key, this.onHide});
+
+  /// When set, a "hide graph" button is shown in the header (in-flow, next
+  /// to the "Graph N · M" label — not floated over it).
+  final VoidCallback? onHide;
 
   @override
   State<GraphView> createState() => _GraphViewState();
@@ -165,10 +169,24 @@ class _GraphViewState extends State<GraphView>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: Text(
-                'Graph  ${_nodes.length} · ${_edges.length}',
-                style: const TextStyle(fontWeight: FontWeight.w600),
+              padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Graph  ${_nodes.length} · ${_edges.length}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  if (widget.onHide != null)
+                    IconButton(
+                      tooltip: 'Hide graph',
+                      iconSize: 18,
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.close_fullscreen),
+                      onPressed: widget.onHide,
+                    ),
+                ],
               ),
             ),
             Expanded(

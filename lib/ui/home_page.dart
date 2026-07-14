@@ -157,6 +157,12 @@ class _HomePageState extends State<HomePage> {
             false,
             () => _quickSwitcher(context),
           ),
+          item(
+            Icons.hub_outlined,
+            _showGraph ? 'Hide graph' : 'Show graph',
+            _showGraph,
+            () => setState(() => _showGraph = !_showGraph),
+          ),
           const Spacer(),
           item(
             Icons.settings_outlined,
@@ -269,20 +275,8 @@ class _HomePageState extends State<HomePage> {
             builder: (context, constraints) {
               final total = constraints.maxWidth;
               if (!_showGraph) {
-                return Stack(
-                  children: [
-                    const Positioned.fill(child: EditorPane()),
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: IconButton(
-                        tooltip: 'Show graph',
-                        icon: const Icon(Icons.hub_outlined),
-                        onPressed: () => setState(() => _showGraph = true),
-                      ),
-                    ),
-                  ],
-                );
+                // Toggled back on from the rail's "Show graph" icon.
+                return const EditorPane();
               }
               final graphWidth =
                   (total * _graphFraction).clamp(180.0, total - 260);
@@ -297,22 +291,8 @@ class _HomePageState extends State<HomePage> {
                   ),
                   SizedBox(
                     width: graphWidth,
-                    child: Stack(
-                      children: [
-                        const Positioned.fill(child: GraphView()),
-                        Positioned(
-                          top: 8,
-                          right: 8,
-                          child: IconButton(
-                            tooltip: 'Hide graph',
-                            iconSize: 18,
-                            visualDensity: VisualDensity.compact,
-                            icon: const Icon(Icons.close_fullscreen),
-                            onPressed: () =>
-                                setState(() => _showGraph = false),
-                          ),
-                        ),
-                      ],
+                    child: GraphView(
+                      onHide: () => setState(() => _showGraph = false),
                     ),
                   ),
                 ],
