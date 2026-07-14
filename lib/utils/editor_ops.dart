@@ -18,7 +18,12 @@ class EditorOps {
   static void prefixLine(TextEditingController controller, String prefix) {
     final sel = controller.selection;
     if (!sel.isValid) return;
-    final start = controller.text.lastIndexOf('\n', sel.start - 1) + 1;
+    // String.lastIndexOf throws RangeError for a negative start index, which
+    // sel.start - 1 would be when the caret sits at the very start of the
+    // text (offset 0, e.g. a brand-new empty note).
+    final start = sel.start <= 0
+        ? 0
+        : controller.text.lastIndexOf('\n', sel.start - 1) + 1;
     controller.value = TextEditingValue(
       text: controller.text.replaceRange(start, start, prefix),
       selection: TextSelection.collapsed(offset: sel.end + prefix.length),

@@ -96,12 +96,21 @@ class VaultController extends ChangeNotifier {
     if (!_openPaths.remove(path)) return;
     if (_current?.path == path) {
       final next = _openPaths.isNotEmpty ? _openPaths.last : null;
-      _current = next == null
-          ? null
-          : _notes.firstWhere((n) => n.path == next, orElse: () => _notes.first);
+      Note? found;
+      if (next != null) {
+        for (final n in _notes) {
+          if (n.path == next) {
+            found = n;
+            break;
+          }
+        }
+      }
+      // _notes.first as a fallback would throw StateError on an empty vault.
+      _current = found ?? (_notes.isNotEmpty ? _notes.first : null);
     }
     notifyListeners();
   }
+
   String projectOf(Note note) => _storage?.projectOf(note) ?? '';
   int? colorOf(String project) => _projectColors[project];
 
@@ -328,15 +337,27 @@ class VaultController extends ChangeNotifier {
   Future<void> deleteNote(Note note) async {
     await _storage!.delete(note);
     _notes.removeWhere((n) => n.path == note.path);
-    _openPaths.remove(note.path);
-    _recent.remove(note.title);
-    if (_reminders.remove(note.title) != null) {
-      await _reminderStore?.save(_reminders);
-    }
+    await _forgetNoteBookkeeping(note);
     if (_current?.path == note.path) {
       _current = _notes.isNotEmpty ? _notes.first : null;
     }
     notifyListeners();
+  }
+
+  /// Drop every title/path-keyed record for a note that is leaving the vault
+  /// (deleted or archived): open tabs, recents, pin, note-level reminder,
+  /// manual glyph override. Without this a note recreated with the same
+  /// title would silently inherit stale pin/glyph/reminder state.
+  Future<void> _forgetNoteBookkeeping(Note note) async {
+    _openPaths.remove(note.path);
+    _recent.remove(note.title);
+    if (_pinned.remove(note.title)) await _pinnedStore?.save(_pinned);
+    if (_reminders.remove(note.title) != null) {
+      await _reminderStore?.save(_reminders);
+    }
+    if (_glyphOverrides.remove(note.title) != null) {
+      await _glyphStore?.saveOverrides(_glyphOverrides);
+    }
   }
 
   Future<void> createProject(String name) async {
@@ -371,17 +392,12 @@ class VaultController extends ChangeNotifier {
     await _pinnedStore?.save(_pinned);
   }
 
-  /// Soft delete: move to `_archive/` and drop pin/reminder bookkeeping.
+  /// Soft delete: move to `_archive/` and drop pin/reminder/glyph bookkeeping.
   Future<void> archiveNote(Note note) async {
     await _flushPendingSave();
     await _storage!.archive(note);
     _notes.removeWhere((n) => n.path == note.path);
-    _openPaths.remove(note.path);
-    _recent.remove(note.title);
-    if (_pinned.remove(note.title)) await _pinnedStore?.save(_pinned);
-    if (_reminders.remove(note.title) != null) {
-      await _reminderStore?.save(_reminders);
-    }
+    await _forgetNoteBookkeeping(note);
     if (_current?.path == note.path) {
       _current = _notes.isNotEmpty ? _notes.first : null;
     }
