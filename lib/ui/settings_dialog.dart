@@ -1,4 +1,4 @@
-import 'package:file_selector/file_selector.dart';
+import '../services/vault_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -219,7 +219,7 @@ class _SettingsDialog extends StatelessWidget {
                     icon: const Icon(Icons.folder_open, size: 18),
                     label: const Text('Choose folder…'),
                     onPressed: () async {
-                      final dir = await getDirectoryPath();
+                      final dir = await pickVaultId();
                       if (dir != null && context.mounted) {
                         await context.read<VaultController>().openVault(dir);
                       }

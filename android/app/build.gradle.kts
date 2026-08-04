@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "dev.bloknot.blobnot"
-    compileSdk = flutter.compileSdkVersion
+    // desktop_drop / file_selector_android require compileSdk >= 34.
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -42,4 +43,9 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // SAF bridge in MainActivity.kt uses DocumentFile.
+    implementation("androidx.documentfile:documentfile:1.0.1")
 }

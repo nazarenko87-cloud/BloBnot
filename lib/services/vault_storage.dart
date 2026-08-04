@@ -1,22 +1,31 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import '../models/note.dart';
+import 'vault_backend.dart';
 
 /// File-system backed vault: notes are plain `.md` files inside [root].
 ///
-/// Windows/desktop only for now (dart:io). Sub-folders are treated as
-/// "projects"; the top level plus each folder are scanned one level deep.
-class VaultStorage {
+/// Desktop (dart:io). Sub-folders are treated as "projects"; the top level
+/// plus each folder are scanned one level deep. See [SafVaultStorage] for the
+/// Android (SAF) implementation of the same [VaultBackend] contract.
+class VaultStorage implements VaultBackend {
   final String root;
   VaultStorage(this.root);
+
+  @override
+  String get id => root;
 
   Directory get _dir => Directory(root);
 
   bool get exists => _dir.existsSync();
 
+  @override
+  Future<bool> available() async => exists;
+
   /// All `.md` files in the vault, recursively, skipping dot-folders and
   /// the reserved `_archive` folder. Files are read in parallel batches so
   /// opening a cloud-synced vault does not stall on file-at-a-time I/O.
+  @override
   Future<List<Note>> loadNotes() async {
     if (!exists) return [];
     final files = <File>[];
@@ -51,6 +60,7 @@ class VaultStorage {
     );
   }
 
+  @override
   Future<Note> write(Note note) async {
     final f = File(note.path);
     await f.parent.create(recursive: true);
@@ -59,6 +69,7 @@ class VaultStorage {
     return note.copyWith(modified: stat.modified);
   }
 
+  @override
   Future<Note> create(String title, {String? subfolder, String? body}) async {
     final dir = subfolder == null ? root : p.join(root, subfolder);
     final path = p.join(dir, '$title.md');
@@ -71,12 +82,14 @@ class VaultStorage {
     return write(note);
   }
 
+  @override
   Future<Note> rename(Note note, String newTitle) async {
     final newPath = p.join(p.dirname(note.path), '$newTitle.md');
     await File(note.path).rename(newPath);
     return note.copyWith(path: newPath, title: newTitle);
   }
 
+  @override
   Future<void> delete(Note note) async {
     final f = File(note.path);
     if (await f.exists()) await f.delete();
@@ -92,6 +105,7 @@ class VaultStorage {
   Directory get _templatesDir => Directory(p.join(root, '_templates'));
 
   /// Template notes from `{vault}/_templates/` (shallow).
+  @override
   Future<List<Note>> loadTemplates() async {
     if (!_templatesDir.existsSync()) return [];
     final notes = <Note>[];
@@ -105,6 +119,7 @@ class VaultStorage {
   }
 
   /// Project = first-level subfolder of the vault (minus reserved ones).
+  @override
   Future<List<String>> listProjects() async {
     if (!exists) return [];
     final names = <String>[];
@@ -118,12 +133,14 @@ class VaultStorage {
     return names;
   }
 
+  @override
   Future<void> createProject(String name) async {
     await Directory(p.join(root, name)).create(recursive: true);
   }
 
   /// Delete a project folder. Its notes are archived first (soft delete),
   /// then the folder with any leftovers is removed.
+  @override
   Future<void> deleteProject(String name) async {
     final dir = Directory(p.join(root, name));
     if (!dir.existsSync()) return;
@@ -136,6 +153,7 @@ class VaultStorage {
   }
 
   /// Project folder a note belongs to ('' when at the vault root).
+  @override
   String projectOf(Note note) {
     final rel = p.relative(note.path, from: root);
     final parts = p.split(rel);
@@ -145,6 +163,7 @@ class VaultStorage {
   Directory get _archiveDir => Directory(p.join(root, '_archive'));
 
   /// Soft delete: move the note file into `{vault}/_archive/`.
+  @override
   Future<void> archive(Note note) async {
     await _archiveDir.create(recursive: true);
     var dest = p.join(_archiveDir.path, p.basename(note.path));
@@ -157,6 +176,7 @@ class VaultStorage {
   }
 
   /// Archived notes (loaded shallowly from `_archive/`).
+  @override
   Future<List<Note>> loadArchived() async {
     if (!_archiveDir.existsSync()) return [];
     final notes = <Note>[];
@@ -172,6 +192,7 @@ class VaultStorage {
   }
 
   /// Move an archived note back to the vault root.
+  @override
   Future<void> restore(Note note) async {
     var dest = p.join(root, p.basename(note.path));
     var i = 1;

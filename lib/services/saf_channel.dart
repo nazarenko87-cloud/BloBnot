@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/services.dart';
 
 /// Dart wrapper over the native Android Storage Access Framework channel
@@ -29,6 +27,27 @@ class SafChannel {
     return (raw ?? [])
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
+  }
+
+  /// Shallow list of `.md` files in one folder (e.g. `_archive`,
+  /// `_templates`) that [listMarkdown] skips. Empty [relDir] = vault root.
+  static Future<List<Map<String, dynamic>>> listFolder(
+    String treeUri,
+    String relDir,
+  ) async {
+    final raw = await _ch.invokeMethod<List<dynamic>>('listFolder', {
+      'tree': treeUri,
+      'path': relDir,
+    });
+    return (raw ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  /// First-level subfolder names (projects), minus reserved/dot folders.
+  static Future<List<String>> listDirs(String treeUri) async {
+    final raw = await _ch.invokeMethod<List<dynamic>>('listDirs', {
+      'tree': treeUri,
+    });
+    return (raw ?? []).map((e) => e as String).toList();
   }
 
   static Future<String> readFile(String treeUri, String relPath) async {
