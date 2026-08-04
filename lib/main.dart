@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 
-import 'services/tray_service.dart';
 import 'state/vault_controller.dart';
 import 'ui/home_page.dart';
 import 'ui/theme.dart';
@@ -11,15 +11,15 @@ import 'ui/theme.dart';
 /// App version string surfaced in the About dialog. Keep in sync with pubspec.
 const String kAppVersion = '2.0';
 
-/// Tray/notifications singleton, initialized in [main] on desktop.
-TrayService? trayService;
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final controller = VaultController();
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    trayService = TrayService(onHidden: controller.lockNow);
-    await trayService!.init();
+    // Needed for the Fullscreen toggle in the rail. No close-interception or
+    // tray icon here on purpose — that used to cost several seconds of
+    // native shutdown latency (measured) for a tray+system-toast feature
+    // set that's no longer worth the cost.
+    await windowManager.ensureInitialized();
   }
   runApp(
     ChangeNotifierProvider.value(

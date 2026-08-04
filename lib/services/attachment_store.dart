@@ -34,6 +34,15 @@ class AttachmentStore {
       .map((m) => Uri.decodeComponent(m.group(1)!))
       .toList();
 
+  /// Removes the whole markdown reference (`![name](attachments/name)` or
+  /// `[name](attachments/name)`) for [name] from [body], so a deleted
+  /// attachment doesn't linger as a broken "missing" entry.
+  static String stripLink(String body, String name) {
+    final encoded = RegExp.escape(Uri.encodeComponent(name));
+    final pattern = RegExp('!?\\[[^\\]]*\\]\\(attachments/$encoded\\)\\n?');
+    return body.replaceAll(pattern, '');
+  }
+
   String pathOf(String name) => p.join(_dir.path, name);
 
   Future<bool> exists(String name) => File(pathOf(name)).exists();
@@ -51,5 +60,12 @@ class AttachmentStore {
       '',
       pathOf(name),
     ], runInShell: false);
+  }
+
+  /// Copy the attachment to a user-chosen [destPath] (from a save-location
+  /// picker). Returns the saved path.
+  Future<String> saveAs(String name, String destPath) async {
+    await File(pathOf(name)).copy(destPath);
+    return destPath;
   }
 }

@@ -1,10 +1,10 @@
-import 'package:file_selector/file_selector.dart';
+import '../services/vault_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../main.dart' show kAppVersion, trayService;
+import '../main.dart' show kAppVersion;
 import '../state/vault_controller.dart';
 import 'dashboard.dart';
 import 'editor_pane.dart';
@@ -54,7 +54,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   bool _showList = true;
   bool _showDashboard = false;
-  bool _showGraph = true;
+  bool _showGraph = false;
   // Graph pane width as a fraction of the editor+graph area (18%–72%).
   double _graphFraction = 0.32;
   bool _dueDialogShowing = false;
@@ -75,6 +75,8 @@ class _HomePageState extends State<HomePage> {
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyP, control: true): () =>
             _quickSwitcher(context),
+        const SingleActivator(LogicalKeyboardKey.keyR, control: true): () =>
+            _refresh(context),
       },
       // Card-based v2.0 shell: floating rounded panels on the page colour.
       child: Scaffold(
@@ -100,7 +102,11 @@ class _HomePageState extends State<HomePage> {
                             SizedBox(
                               width: 260,
                               child: ShellCard(
-                                child: NoteList(onNew: () => _newNote(context)),
+                                child: NoteList(
+                                  onNew: () => _newNote(context),
+                                  onNewInProject: (project) =>
+                                      _newNote(context, initialProject: project),
+                                ),
                               ),
                             ),
                             const SizedBox(width: kShellGap),
@@ -158,37 +164,52 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               const SizedBox(height: 12),
-              item(
-                Icons.description_outlined,
-                'Notes',
-                !_showDashboard,
-                () => setState(() => _showDashboard = false),
+              // Scrollable so a short window height clips gracefully instead
+              // of overflowing — the bottom icons stay pinned via Expanded.
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      item(
+                        Icons.description_outlined,
+                        'Notes',
+                        !_showDashboard,
+                        () => setState(() => _showDashboard = false),
+                      ),
+                      item(
+                        Icons.dashboard_outlined,
+                        'Dashboard',
+                        _showDashboard,
+                        () => setState(() => _showDashboard = true),
+                      ),
+                      item(
+                        Icons.view_sidebar_outlined,
+                        _showList ? 'Hide notes list' : 'Show notes list',
+                        _showList,
+                        () => setState(() => _showList = !_showList),
+                      ),
+                      item(
+                        Icons.bolt,
+                        'Quick switcher (Ctrl+P)',
+                        false,
+                        () => _quickSwitcher(context),
+                      ),
+                      item(
+                        Icons.hub_outlined,
+                        _showGraph ? 'Hide graph' : 'Show graph',
+                        _showGraph,
+                        () => setState(() => _showGraph = !_showGraph),
+                      ),
+                      item(
+                        Icons.refresh,
+                        'Refresh notes from disk (Ctrl+R)',
+                        false,
+                        () => _refresh(context),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              item(
-                Icons.dashboard_outlined,
-                'Dashboard',
-                _showDashboard,
-                () => setState(() => _showDashboard = true),
-              ),
-              item(
-                Icons.view_sidebar_outlined,
-                _showList ? 'Hide notes list' : 'Show notes list',
-                _showList,
-                () => setState(() => _showList = !_showList),
-              ),
-              item(
-                Icons.bolt,
-                'Quick switcher (Ctrl+P)',
-                false,
-                () => _quickSwitcher(context),
-              ),
-              item(
-                Icons.hub_outlined,
-                _showGraph ? 'Hide graph' : 'Show graph',
-                _showGraph,
-                () => setState(() => _showGraph = !_showGraph),
-              ),
-              const Spacer(),
               item(
                 Icons.calculate_outlined,
                 'Calculator',
@@ -278,8 +299,6 @@ class _HomePageState extends State<HomePage> {
     final title = controller.dueReminderTitle;
     if (title == null || _dueDialogShowing) return;
     _dueDialogShowing = true;
-    // Real system toast — visible even when the window is hidden in tray.
-    trayService?.notify('BloBnot — reminder', title);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       await showDialog<void>(
@@ -347,18 +366,33 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  /// Re-reads the vault from disk without restarting the app — picks up
+  /// notes changed outside BloBnot (e.g. by an AI editing files directly).
+  Future<void> _refresh(BuildContext context) async {
+    final controller = context.read<VaultController>();
+    await controller.reload();
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Notes refreshed'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
+  }
+
   Future<void> _pickVault(BuildContext context) async {
-    final dir = await getDirectoryPath();
+    final dir = await pickVaultId();
     if (dir == null || !context.mounted) return;
     await context.read<VaultController>().openVault(dir);
   }
 
-  Future<void> _newNote(BuildContext context) async {
+  Future<void> _newNote(BuildContext context, {String initialProject = ''}) async {
     final controller = context.read<VaultController>();
     final templates = await controller.loadTemplates();
     if (!context.mounted) return;
     final ctrl = TextEditingController();
-    String project = '';
+    String project = initialProject;
     String templateTitle = '';
     final ok = await showDialog<bool>(
       context: context,

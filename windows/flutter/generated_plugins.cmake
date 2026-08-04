@@ -5,13 +5,12 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   desktop_drop
   file_selector_windows
-  local_notifier
   screen_retriever_windows
-  tray_manager
   window_manager
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
+  jni
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

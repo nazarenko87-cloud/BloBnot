@@ -44,7 +44,11 @@ void main() {
     // Editor header shows a word count for the selected (first) note.
     expect(find.textContaining('words'), findsOneWidget);
 
-    // Graph reflects 2 nodes and 1 edge (Alpha -> Beta).
+    // Graph is hidden by default — show it, then it reflects 2 nodes and
+    // 1 edge (Alpha -> Beta).
+    expect(find.text('Graph  2 · 1'), findsNothing);
+    await tester.tap(find.byTooltip('Show graph'));
+    await tester.pump();
     expect(find.text('Graph  2 · 1'), findsOneWidget);
 
     // Dispose the widget tree (stops the graph ticker) before the controller.

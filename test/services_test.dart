@@ -56,6 +56,18 @@ void main() {
           '[x](attachments/b%20c.png) but not [w](https://e.com/attachments/z).';
       expect(AttachmentStore.referencedIn(body), ['a.pdf', 'b c.png']);
     });
+
+    test('stripLink removes only the named attachment\'s markdown link', () {
+      const body = 'Before\n'
+          '![cat.png](attachments/cat.png)\n'
+          '[📎 doc (1).pdf](attachments/doc%20(1).pdf)\n'
+          'After';
+      final stripped = AttachmentStore.stripLink(body, 'cat.png');
+      expect(stripped, 'Before\n[📎 doc (1).pdf](attachments/doc%20(1).pdf)\nAfter');
+
+      final strippedBoth = AttachmentStore.stripLink(stripped, 'doc (1).pdf');
+      expect(strippedBoth, 'Before\nAfter');
+    });
   });
 
   group('PasswordStore', () {

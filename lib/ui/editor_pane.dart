@@ -33,7 +33,7 @@ class _EditorPaneState extends State<EditorPane> {
   final _focus = FocusNode();
   final _findController = TextEditingController();
   final _replaceController = TextEditingController();
-  ViewMode _mode = ViewMode.split;
+  ViewMode _mode = ViewMode.edit;
   String? _loadedPath;
   bool _findVisible = false;
 
@@ -170,7 +170,12 @@ class _EditorPaneState extends State<EditorPane> {
             ),
           ),
           _BacklinksPanel(note: note),
-          _AttachmentsPanel(note: note, onAttach: () => _attachFile(context)),
+          _AttachmentsPanel(
+            note: note,
+            onAttach: () => _attachFile(context),
+            onDeleted: (name) =>
+                _setBody(AttachmentStore.stripLink(_textController.text, name)),
+          ),
         ],
       ),
     );
@@ -775,20 +780,14 @@ class _EditorPaneState extends State<EditorPane> {
         sizedImageBuilder: (config) {
           final src = config.uri.toString();
           if (src.startsWith('assets/stickers/')) {
-            // Small squircle emoji-style: crop away the caption text baked
-            // into the sticker's edges, keep just the character.
+            // Small squircle emoji-style tile — the sticker art is already a
+            // square face with no baked-in caption, so just fit it in.
             return ClipRSuperellipse(
               borderRadius: BorderRadius.circular(14),
               child: SizedBox(
                 width: 44,
                 height: 44,
-                child: ClipRect(
-                  child: Align(
-                    widthFactor: 0.8,
-                    heightFactor: 0.7,
-                    child: Image.asset(src, width: 55, height: 63),
-                  ),
-                ),
+                child: Image.asset(src, fit: BoxFit.contain),
               ),
             );
           }
@@ -863,6 +862,17 @@ class _AttachmentCard extends StatelessWidget {
     return Icons.insert_drive_file_outlined;
   }
 
+  Future<void> _download(BuildContext context) async {
+    final location = await getSaveLocation(suggestedName: name);
+    if (location == null) return; // user cancelled the picker
+    final path = await store.saveAs(name, location.path);
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Saved: $path')));
+    }
+  }
+
   Future<String> _sizeLabel() async {
     try {
       final bytes = await File(store.pathOf(name)).length();
@@ -929,11 +939,13 @@ class _AttachmentCard extends StatelessWidget {
                   icon: const Icon(Icons.more_horiz, size: 18),
                   onSelected: (v) => switch (v) {
                     'open' => store.open(name),
+                    'download' => _download(context),
                     'delete' => onDelete(),
                     _ => null,
                   },
                   itemBuilder: (context) => const [
                     PopupMenuItem(value: 'open', child: Text('Open')),
+                    PopupMenuItem(value: 'download', child: Text('Download')),
                     PopupMenuItem(value: 'delete', child: Text('Delete')),
                   ],
                 ),
@@ -947,10 +959,18 @@ class _AttachmentCard extends StatelessWidget {
 }
 
 class _AttachmentsPanel extends StatelessWidget {
-  const _AttachmentsPanel({required this.note, required this.onAttach});
+  const _AttachmentsPanel({
+    required this.note,
+    required this.onAttach,
+    required this.onDeleted,
+  });
 
   final Note note;
   final VoidCallback onAttach;
+
+  /// Called after a file is physically deleted, with its name, so the
+  /// caller can strip its markdown link from the live editor text.
+  final void Function(String name) onDeleted;
 
   @override
   Widget build(BuildContext context) {
@@ -1003,8 +1023,8 @@ class _AttachmentsPanel extends StatelessWidget {
       builder: (context) => AlertDialog(
         title: Text('Delete "$name"?'),
         content: const Text(
-          'The file will be removed from the attachments folder. '
-          'The link in the note text stays.',
+          'The file will be removed from the attachments folder and its '
+          'link removed from the note.',
         ),
         actions: [
           TextButton(
@@ -1018,7 +1038,9 @@ class _AttachmentsPanel extends StatelessWidget {
         ],
       ),
     );
-    if (ok == true) await store.delete(name);
+    if (ok != true) return;
+    await store.delete(name);
+    onDeleted(name);
   }
 }
 

@@ -8,8 +8,9 @@ import 'glyph_avatar.dart';
 import 'pulse.dart';
 
 class NoteList extends StatefulWidget {
-  const NoteList({super.key, required this.onNew});
+  const NoteList({super.key, required this.onNew, required this.onNewInProject});
   final VoidCallback onNew;
+  final void Function(String project) onNewInProject;
 
   @override
   State<NoteList> createState() => _NoteListState();
@@ -224,7 +225,7 @@ class _NoteListState extends State<NoteList> {
                     ExpansionTile(
                       key: ValueKey('project-${e.key}'),
                       dense: true,
-                      initiallyExpanded: true,
+                      initiallyExpanded: false,
                       leading: ReorderableDragStartListener(
                         index: i,
                         child: Pulse(
@@ -259,6 +260,7 @@ class _NoteListState extends State<NoteList> {
                         style: _compactButton,
                         icon: const Icon(Icons.more_horiz, size: 16),
                         onSelected: (v) => switch (v) {
+                          'add_note' => widget.onNewInProject(e.key),
                           'color' => _pickColor(context, e.key),
                           'delete' => _deleteProject(
                             context,
@@ -268,6 +270,10 @@ class _NoteListState extends State<NoteList> {
                           _ => null,
                         },
                         itemBuilder: (context) => const [
+                          PopupMenuItem(
+                            value: 'add_note',
+                            child: Text('Add note'),
+                          ),
                           PopupMenuItem(value: 'color', child: Text('Colour…')),
                           PopupMenuItem(
                             value: 'delete',
