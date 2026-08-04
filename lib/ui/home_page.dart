@@ -1,13 +1,16 @@
 import '../services/vault_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../main.dart' show kAppVersion;
+import '../state/external_files_controller.dart';
 import '../state/vault_controller.dart';
 import 'dashboard.dart';
 import 'editor_pane.dart';
+import 'external_file_view.dart';
 import 'graph_view.dart';
 import 'calculator_dialog.dart';
 import 'lock_screen.dart';
@@ -206,6 +209,12 @@ class _HomePageState extends State<HomePage> {
                         false,
                         () => _refresh(context),
                       ),
+                      item(
+                        Icons.file_open_outlined,
+                        'Open file (.txt / .md)',
+                        false,
+                        () => _openExternalFile(context),
+                      ),
                     ],
                   ),
                 ),
@@ -322,13 +331,23 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _editorAndGraph(BuildContext context) {
+    final hasExternalFiles = context
+        .watch<ExternalFilesController>()
+        .hasOpenFiles;
     final editorCard = ShellCard(
-      child: Column(
-        children: [
-          const OpenTabs(),
-          const Expanded(child: EditorPane()),
-        ],
-      ),
+      child: hasExternalFiles
+          ? const Column(
+              children: [
+                ExternalFileTabs(),
+                Expanded(child: ExternalFileViewer()),
+              ],
+            )
+          : const Column(
+              children: [
+                OpenTabs(),
+                Expanded(child: EditorPane()),
+              ],
+            ),
     );
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -364,6 +383,18 @@ class _HomePageState extends State<HomePage> {
         );
       },
     );
+  }
+
+  /// Opens a .txt/.md file from anywhere on disk in its own tab, separate
+  /// from the vault's notes — "Save to notes" imports it explicitly.
+  Future<void> _openExternalFile(BuildContext context) async {
+    final file = await openFile(
+      acceptedTypeGroups: const [
+        XTypeGroup(label: 'Text / Markdown', extensions: ['txt', 'md']),
+      ],
+    );
+    if (file == null || !context.mounted) return;
+    await context.read<ExternalFilesController>().open(file.path);
   }
 
   /// Re-reads the vault from disk without restarting the app — picks up

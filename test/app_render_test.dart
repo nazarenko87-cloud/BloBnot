@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:blobnot/services/settings_store.dart';
+import 'package:blobnot/state/external_files_controller.dart';
 import 'package:blobnot/state/vault_controller.dart';
 import 'package:blobnot/ui/home_page.dart';
 import 'package:flutter/material.dart';
@@ -30,8 +31,11 @@ void main() {
     });
 
     await tester.pumpWidget(
-      ChangeNotifierProvider.value(
-        value: controller,
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: controller),
+          ChangeNotifierProvider(create: (_) => ExternalFilesController()),
+        ],
         child: const MaterialApp(home: HomePage()),
       ),
     );

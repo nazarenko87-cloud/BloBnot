@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'state/external_files_controller.dart';
 import 'state/vault_controller.dart';
 import 'ui/home_page.dart';
 import 'ui/theme.dart';
@@ -22,8 +23,11 @@ void main() async {
     await windowManager.ensureInitialized();
   }
   runApp(
-    ChangeNotifierProvider.value(
-      value: controller..bootstrap(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: controller..bootstrap()),
+        ChangeNotifierProvider(create: (_) => ExternalFilesController()),
+      ],
       child: const BloBnotApp(),
     ),
   );

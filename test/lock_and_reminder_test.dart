@@ -2,14 +2,18 @@ import 'dart:io';
 
 import 'package:blobnot/services/password_store.dart';
 import 'package:blobnot/services/settings_store.dart';
+import 'package:blobnot/state/external_files_controller.dart';
 import 'package:blobnot/state/vault_controller.dart';
 import 'package:blobnot/ui/home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
-Widget _app(VaultController c) => ChangeNotifierProvider.value(
-      value: c,
+Widget _app(VaultController c) => MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: c),
+        ChangeNotifierProvider(create: (_) => ExternalFilesController()),
+      ],
       child: const MaterialApp(home: HomePage()),
     );
 
