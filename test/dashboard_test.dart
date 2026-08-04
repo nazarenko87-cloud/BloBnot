@@ -40,10 +40,19 @@ void main() {
     );
     await tester.pump();
 
-    // Stats: 2 notes, 1 project, 0 reminders.
+    // Stats: 2 notes, 1 project, 0 reminders. The calendar (also on the
+    // dashboard) legitimately renders its own day-of-month digits, so target
+    // the stat's value Text by key rather than bare text.
     expect(find.text('Notes'), findsOneWidget);
-    expect(find.text('2'), findsOneWidget);
     expect(find.text('Projects'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const Key('stat-Notes'))).data,
+      '2',
+    );
+    expect(
+      tester.widget<Text>(find.byKey(const Key('stat-Projects'))).data,
+      '1',
+    );
 
     // Cards for both notes; Beta carries its project chip.
     expect(find.text('Alpha'), findsOneWidget);

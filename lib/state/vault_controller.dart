@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../models/calendar_event.dart';
 import '../models/note.dart';
+import '../services/calendar_event_store.dart';
 import '../services/password_store.dart';
 import '../services/glyph_store.dart';
 import '../services/pinned_store.dart';
@@ -11,7 +13,8 @@ import '../services/project_order_store.dart';
 import '../services/recent_store.dart';
 import '../services/reminder_store.dart';
 import '../services/settings_store.dart';
-import '../services/vault_storage.dart';
+import '../services/meta_paths.dart';
+import '../services/vault_backend.dart';
 import '../utils/line_reminders.dart';
 
 /// Single source of truth for the open vault: notes, selection, theme,
@@ -25,7 +28,7 @@ class VaultController extends ChangeNotifier {
 
   final PasswordStore passwordStore;
 
-  VaultStorage? _storage;
+  VaultBackend? _storage;
   SettingsStore? _settingsStore;
   ReminderStore? _reminderStore;
   PinnedStore? _pinnedStore;
@@ -47,6 +50,8 @@ class VaultController extends ChangeNotifier {
   List<String> _projectOrder = [];
   RecentStore? _recentStore;
   List<String> _recent = [];
+  CalendarEventStore? _calendarStore;
+  List<CalendarEvent> _events = [];
 
   /// Paths of notes open as tabs, in tab order.
   final List<String> _openPaths = [];
@@ -59,17 +64,27 @@ class VaultController extends ChangeNotifier {
   /// (dismissing strips the due tags from that note's body).
   Note? _dueLineNote;
 
+  /// When the due alert came from a standalone calendar event (not tied to
+  /// any note), its id (dismissing removes that event).
+  String? _dueEventId;
+
   List<Note> get notes => List.unmodifiable(_notes);
   Note? get current => _current;
   VaultSettings get settings => _settings;
   bool get loading => _loading;
   bool get hasVault => _storage != null;
-  String? get vaultRoot => _storage?.root;
+  String? get vaultRoot => _storage?.id;
   bool get locked => _locked;
   String? get dueReminderTitle => _dueTitle;
 
   DateTime? reminderFor(String title) => _reminders[title];
   bool isPinned(String title) => _pinned.contains(title);
+
+  /// All note-level reminders, keyed by note title (for calendar display).
+  Map<String, DateTime> get reminders => Map.unmodifiable(_reminders);
+
+  /// Standalone reminders not tied to any note (for calendar display).
+  List<CalendarEvent> get events => List.unmodifiable(_events);
   List<String> get projects =>
       List.unmodifiable(ProjectOrderStore.applyOrder(_projects, _projectOrder));
 
@@ -189,7 +204,7 @@ class VaultController extends ChangeNotifier {
   Future<void> bootstrap() async {
     await refreshLock();
     final last = await AppSettings.lastVault();
-    if (last != null && VaultStorage(last).exists) {
+    if (last != null && await openBackend(last).available()) {
       await openVault(last);
     }
   }
@@ -224,17 +239,22 @@ class VaultController extends ChangeNotifier {
   Future<void> openVault(String root) async {
     _loading = true;
     notifyListeners();
-    _storage = VaultStorage(root);
-    _settingsStore = SettingsStore(root);
-    _reminderStore = ReminderStore(root);
-    _pinnedStore = PinnedStore(root);
-    _projectColorsStore = ProjectColorsStore(root);
-    _recentStore = RecentStore(root);
+    _storage = openBackend(root);
+    // Metadata lives alongside the vault on desktop, but app-private on Android
+    // (a SAF content:// tree is not reachable via dart:io).
+    final meta = await vaultMetaRoot(root);
+    _settingsStore = SettingsStore(meta);
+    _reminderStore = ReminderStore(meta);
+    _pinnedStore = PinnedStore(meta);
+    _projectColorsStore = ProjectColorsStore(meta);
+    _recentStore = RecentStore(meta);
     _openPaths.clear();
-    _glyphStore = GlyphStore(root);
-    _projectOrderStore = ProjectOrderStore(root);
+    _glyphStore = GlyphStore(meta);
+    _projectOrderStore = ProjectOrderStore(meta);
+    _calendarStore = CalendarEventStore(meta);
     _settings = await _settingsStore!.load();
     _reminders = await _reminderStore!.load();
+    _events = await _calendarStore!.load();
     _pinned = await _pinnedStore!.load();
     _projectColors = await _projectColorsStore!.load();
     _tagGlyphs = await _glyphStore!.loadTagGlyphs();
@@ -255,8 +275,12 @@ class VaultController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Re-reads the vault from disk — picks up notes changed outside the app
+  /// (e.g. edited directly on disk) without restarting BloBnot. Flushes any
+  /// pending debounced save first so in-progress typing isn't discarded.
   Future<void> reload() async {
     if (_storage == null) return;
+    await _flushPendingSave();
     _projects = await _storage!.listProjects();
     _notes = await _storage!.loadNotes();
     if (_current != null) {
@@ -428,6 +452,29 @@ class VaultController extends ChangeNotifier {
     }
   }
 
+  /// Create a standalone reminder for [when] that isn't tied to any note
+  /// (set from the dashboard calendar).
+  Future<void> addEvent(String title, DateTime when) async {
+    _events.add(
+      CalendarEvent(
+        id: '${DateTime.now().microsecondsSinceEpoch}',
+        title: title,
+        when: when,
+      ),
+    );
+    notifyListeners();
+    await _calendarStore?.save(_events);
+  }
+
+  Future<void> deleteEvent(String id) async {
+    if (_events.isEmpty) return;
+    final before = _events.length;
+    _events = _events.where((e) => e.id != id).toList();
+    if (_events.length == before) return;
+    notifyListeners();
+    await _calendarStore?.save(_events);
+  }
+
   void _touchRecent(Note note) {
     _recent
       ..remove(note.title)
@@ -456,14 +503,24 @@ class VaultController extends ChangeNotifier {
         return;
       }
     }
+    for (final ev in _events) {
+      if (ev.when.isBefore(now)) {
+        _dueTitle = ev.title;
+        _dueEventId = ev.id;
+        notifyListeners();
+        return;
+      }
+    }
   }
 
   /// Called by the UI after showing the due alert: clears the fired reminder.
   Future<void> dismissDueReminder() async {
     final title = _dueTitle;
     final lineNote = _dueLineNote;
+    final eventId = _dueEventId;
     _dueTitle = null;
     _dueLineNote = null;
+    _dueEventId = null;
     if (lineNote != null) {
       final stripped = LineReminders.stripDue(lineNote.body, DateTime.now());
       if (stripped != null) {
@@ -473,6 +530,9 @@ class VaultController extends ChangeNotifier {
         if (_current?.path == lineNote.path) _current = updated;
         await _storage?.write(updated);
       }
+    } else if (eventId != null) {
+      _events.removeWhere((e) => e.id == eventId);
+      await _calendarStore?.save(_events);
     } else if (title != null && _reminders.remove(title) != null) {
       await _reminderStore?.save(_reminders);
     }
