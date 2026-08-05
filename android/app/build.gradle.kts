@@ -48,4 +48,7 @@ flutter {
 dependencies {
     // SAF bridge in MainActivity.kt uses DocumentFile.
     implementation("androidx.documentfile:documentfile:1.0.1")
+    // SAF/ContentResolver calls are blocking I/O (often network-backed for a
+    // cloud-synced folder) and must run off the main thread.
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }

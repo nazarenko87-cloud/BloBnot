@@ -7,6 +7,12 @@ import androidx.documentfile.provider.DocumentFile
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Storage Access Framework bridge (`bloknot/saf`). A "SAF vault" is a
@@ -16,6 +22,7 @@ class MainActivity : FlutterActivity() {
     private val channel = "bloknot/saf"
     private var pendingResult: MethodChannel.Result? = null
     private val openTreeRequest = 42
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
@@ -25,34 +32,47 @@ class MainActivity : FlutterActivity() {
                 val path = call.argument<String>("path")
                 when (call.method) {
                     "pickTree" -> pickTree(result)
+                    // Fast, in-memory check — fine to answer synchronously.
                     "hasPermission" -> result.success(hasPermission(tree))
-                    "listMarkdown" -> result.success(listMarkdown(tree!!))
-                    "listFolder" -> result.success(listFolder(tree!!, path!!))
-                    "listDirs" -> result.success(listDirs(tree!!))
-                    "readFile" -> result.success(readFile(tree!!, path!!))
-                    "writeFile" -> {
+                    "listMarkdown" -> runIo(result) { listMarkdown(tree!!) }
+                    "listFolder" -> runIo(result) { listFolder(tree!!, path!!) }
+                    "listDirs" -> runIo(result) { listDirs(tree!!) }
+                    "readFile" -> runIo(result) { readFile(tree!!, path!!) }
+                    "writeFile" -> runIo(result) {
                         writeText(tree!!, path!!, call.argument<String>("content")!!)
-                        result.success(null)
                     }
-                    "writeBytes" -> {
+                    "writeBytes" -> runIo(result) {
                         writeBytes(tree!!, path!!, call.argument<ByteArray>("bytes")!!)
-                        result.success(null)
                     }
-                    "delete" -> {
-                        findFile(tree!!, path!!)?.delete()
-                        result.success(null)
-                    }
-                    "rename" -> {
+                    "delete" -> runIo(result) { findFile(tree!!, path!!)?.delete() }
+                    "rename" -> runIo(result) {
                         rename(tree!!, path!!, call.argument<String>("newPath")!!)
-                        result.success(null)
                     }
-                    "mkdir" -> {
-                        ensureDir(tree!!, path!!)
-                        result.success(null)
-                    }
+                    "mkdir" -> runIo(result) { ensureDir(tree!!, path!!) }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /**
+     * Runs [block] on a background thread. SAF/ContentResolver calls are
+     * blocking I/O — often network-backed for a cloud-synced folder like
+     * Google Drive — so running them on the main thread can freeze the UI
+     * for many seconds and trigger an ANR (Android force-closes the app).
+     */
+    private fun <T> runIo(result: MethodChannel.Result, block: () -> T) {
+        scope.launch {
+            val outcome = runCatching { withContext(Dispatchers.IO) { block() } }
+            outcome.fold(
+                onSuccess = { result.success(it) },
+                onFailure = { result.error("saf_error", it.message, null) },
+            )
+        }
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
     }
 
     private fun pickTree(result: MethodChannel.Result) {
