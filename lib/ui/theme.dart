@@ -89,6 +89,12 @@ const Color kTagGreen = Color(0xFF6E9E52);
 const double kCardRadius = 18;
 const double kShellGap = 12;
 
+/// Below this width the desktop card shell (rail + sidebar + editor + graph
+/// side-by-side) has no room to breathe — switch to a single-pane phone
+/// layout instead (drawer for nav+notes, one full-screen body, bottom
+/// toolbar in the editor).
+const double kMobileBreakpoint = 700;
+
 /// Soft drop shadow for the floating cards.
 List<BoxShadow> cardShadow(bool dark) => [
   BoxShadow(

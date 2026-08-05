@@ -74,6 +74,10 @@ class _HomePageState extends State<HomePage> {
       return Scaffold(body: _NoVault(onOpen: () => _pickVault(context)));
     }
 
+    if (MediaQuery.sizeOf(context).width < kMobileBreakpoint) {
+      return _mobileScaffold(context, controller);
+    }
+
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyP, control: true): () =>
@@ -243,6 +247,228 @@ class _HomePageState extends State<HomePage> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Single-pane phone layout: the note editor is the whole screen; every
+  /// other feature (notes list, dashboard, graph, settings, …) lives behind
+  /// the drawer so it never competes with the writing surface for space.
+  Widget _mobileScaffold(BuildContext context, VaultController controller) {
+    final hasExternalFiles = context
+        .watch<ExternalFilesController>()
+        .hasOpenFiles;
+    final note = controller.current;
+
+    String title;
+    if (_showDashboard) {
+      title = 'Dashboard';
+    } else if (_showGraph) {
+      title = 'Graph';
+    } else if (hasExternalFiles) {
+      title = context.watch<ExternalFilesController>().active?.title ?? 'File';
+    } else {
+      title = note?.title ?? 'BloBnot';
+    }
+
+    Widget body;
+    if (_showDashboard) {
+      body = DashboardView(
+        onOpenNote: () => setState(() => _showDashboard = false),
+      );
+    } else if (_showGraph) {
+      body = GraphView(onHide: () => setState(() => _showGraph = false));
+    } else if (hasExternalFiles) {
+      body = const Column(
+        children: [
+          ExternalFileTabs(),
+          Expanded(child: ExternalFileViewer()),
+        ],
+      );
+    } else {
+      body = const EditorPane();
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Menu',
+            onSelected: (v) => switch (v) {
+              'new' => _newNote(context).then((_) {
+                if (mounted) {
+                  setState(() {
+                    _showDashboard = false;
+                    _showGraph = false;
+                  });
+                }
+              }),
+              'refresh' => _refresh(context),
+              'open_file' => _openExternalFile(context),
+              'calculator' => showCalculatorDialog(context),
+              'settings' => showSettingsDialog(context),
+              'about' => _showAbout(context),
+              _ => null,
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'new',
+                child: ListTile(
+                  leading: Icon(Icons.add),
+                  title: Text('New note'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'refresh',
+                child: ListTile(
+                  leading: Icon(Icons.refresh),
+                  title: Text('Refresh from disk'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'open_file',
+                child: ListTile(
+                  leading: Icon(Icons.file_open_outlined),
+                  title: Text('Open file'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'calculator',
+                child: ListTile(
+                  leading: Icon(Icons.calculate_outlined),
+                  title: Text('Calculator'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'settings',
+                child: ListTile(
+                  leading: Icon(Icons.settings_outlined),
+                  title: Text('Settings'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'about',
+                child: ListTile(
+                  leading: Icon(Icons.info_outline),
+                  title: Text('About'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      drawer: _mobileDrawer(context),
+      body: body,
+    );
+  }
+
+  Widget _mobileDrawer(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    Widget navItem(
+      IconData icon,
+      String label,
+      bool active,
+      VoidCallback onTap,
+    ) => ListTile(
+      leading: Icon(icon, color: active ? accent : null),
+      title: Text(
+        label,
+        style: TextStyle(
+          color: active ? accent : null,
+          fontWeight: active ? FontWeight.w700 : null,
+        ),
+      ),
+      selected: active,
+      onTap: () {
+        Navigator.pop(context);
+        onTap();
+      },
+    );
+
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          children: [
+            DrawerHeader(
+              margin: EdgeInsets.zero,
+              child: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: accent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Text(
+                      'B',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'BloBnot',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
+            navItem(
+              Icons.description_outlined,
+              'Notes',
+              !_showDashboard && !_showGraph,
+              () => setState(() {
+                _showDashboard = false;
+                _showGraph = false;
+              }),
+            ),
+            navItem(
+              Icons.dashboard_outlined,
+              'Dashboard',
+              _showDashboard,
+              () => setState(() {
+                _showDashboard = true;
+                _showGraph = false;
+              }),
+            ),
+            navItem(
+              Icons.hub_outlined,
+              'Graph',
+              _showGraph,
+              () => setState(() {
+                _showGraph = true;
+                _showDashboard = false;
+              }),
+            ),
+            navItem(
+              Icons.bolt,
+              'Quick switcher',
+              false,
+              () => _quickSwitcher(context),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: NoteList(
+                onNew: () => _newNote(context),
+                onNewInProject: (project) =>
+                    _newNote(context, initialProject: project),
+                onNoteOpened: () {
+                  Navigator.pop(context);
+                  setState(() {
+                    _showDashboard = false;
+                    _showGraph = false;
+                  });
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );

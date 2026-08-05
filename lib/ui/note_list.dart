@@ -8,9 +8,18 @@ import 'glyph_avatar.dart';
 import 'pulse.dart';
 
 class NoteList extends StatefulWidget {
-  const NoteList({super.key, required this.onNew, required this.onNewInProject});
+  const NoteList({
+    super.key,
+    required this.onNew,
+    required this.onNewInProject,
+    this.onNoteOpened,
+  });
   final VoidCallback onNew;
   final void Function(String project) onNewInProject;
+
+  /// Called right after a note is selected (in addition to the selection
+  /// itself) — lets a mobile drawer close itself once a note is picked.
+  final VoidCallback? onNoteOpened;
 
   @override
   State<NoteList> createState() => _NoteListState();
@@ -327,7 +336,10 @@ class _NoteListState extends State<NoteList> {
           : () => setState(
               () => _glyphFilter = _glyphFilter == glyph ? null : glyph,
             ),
-      onTap: () => controller.select(note),
+      onTap: () {
+        controller.select(note);
+        widget.onNoteOpened?.call();
+      },
       onPin: () => controller.togglePin(note.title),
       onArchive: () => controller.archiveNote(note),
       onSetGlyph: () => _setGlyph(context, note),

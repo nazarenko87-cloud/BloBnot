@@ -17,6 +17,7 @@ import '../utils/editor_ops.dart';
 import '../utils/line_reminders.dart';
 import '../utils/markdown_highlight.dart';
 import 'sticker_picker.dart';
+import 'theme.dart';
 
 enum ViewMode { edit, split, preview }
 
@@ -122,9 +123,8 @@ class _EditorPaneState extends State<EditorPane> {
       },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _header(context, controller, note),
-          _Toolbar(
+        children: () {
+          final toolbar = _Toolbar(
             controller: _textController,
             onChanged: _commitText,
             onAttach: () => _attachFile(context),
@@ -133,10 +133,8 @@ class _EditorPaneState extends State<EditorPane> {
             onExportPdf: () => _export(context, note, ExportService.toPdf),
             onAiContext: () => _copyAiContext(context, note),
             onLinkPicker: () => _pickLink(context),
-          ),
-          if (_findVisible) _findBar(context),
-          const Divider(height: 1),
-          Expanded(
+          );
+          final body = Expanded(
             child: DropTarget(
               onDragDone: (detail) => _attachPaths(
                 context,
@@ -168,15 +166,30 @@ class _EditorPaneState extends State<EditorPane> {
                 ],
               ),
             ),
-          ),
-          _BacklinksPanel(note: note),
-          _AttachmentsPanel(
-            note: note,
-            onAttach: () => _attachFile(context),
-            onDeleted: (name) =>
-                _setBody(AttachmentStore.stripLink(_textController.text, name)),
-          ),
-        ],
+          );
+          final rest = [
+            if (_findVisible) _findBar(context),
+            const Divider(height: 1),
+            body,
+            _BacklinksPanel(note: note),
+            _AttachmentsPanel(
+              note: note,
+              onAttach: () => _attachFile(context),
+              onDeleted: (name) => _setBody(
+                AttachmentStore.stripLink(_textController.text, name),
+              ),
+            ),
+          ];
+          // Thumb-reachable: on a phone the formatting toolbar sits at the
+          // bottom instead of just under the header.
+          final isMobile = MediaQuery.sizeOf(context).width < kMobileBreakpoint;
+          return [
+            _header(context, controller, note),
+            if (!isMobile) toolbar,
+            ...rest,
+            if (isMobile) toolbar,
+          ];
+        }(),
       ),
     );
   }
@@ -430,6 +443,9 @@ class _EditorPaneState extends State<EditorPane> {
 
   Widget _header(BuildContext context, VaultController controller, Note note) {
     final reminder = controller.reminderFor(note.title);
+    // On mobile the note title already sits in the AppBar — showing it again
+    // here would just duplicate it and burn scarce vertical space.
+    final isMobile = MediaQuery.sizeOf(context).width < kMobileBreakpoint;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 12, 4),
       child: Row(
@@ -438,13 +454,14 @@ class _EditorPaneState extends State<EditorPane> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  note.title,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
+                if (!isMobile)
+                  Text(
+                    note.title,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
                 Wrap(
                   crossAxisAlignment: WrapCrossAlignment.center,
                   spacing: 8,
