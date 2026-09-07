@@ -21,6 +21,18 @@ void main() async {
     // native shutdown latency (measured) for a tray+system-toast feature
     // set that's no longer worth the cost.
     await windowManager.ensureInitialized();
+    if (Platform.isWindows) {
+      // Hide the plain black OS title bar (it didn't match the app's theme
+      // or accent colour at all) and replace it with a themed one built in
+      // _WindowsShell below.
+      await windowManager.waitUntilReadyToShow(
+        const WindowOptions(titleBarStyle: TitleBarStyle.hidden),
+        () async {
+          await windowManager.show();
+          await windowManager.focus();
+        },
+      );
+    }
   }
   runApp(
     MultiProvider(
@@ -53,7 +65,68 @@ class BloBnotApp extends StatelessWidget {
         dark: true,
       ),
       themeMode: themeModeOf(s.themeMode),
-      home: const HomePage(),
+      home: Platform.isWindows
+          ? const _WindowsShell(child: HomePage())
+          : const HomePage(),
+    );
+  }
+}
+
+/// Wraps [HomePage] with a custom title bar that matches the app's theme
+/// instead of the OS's plain black one (native chrome is hidden — see
+/// `TitleBarStyle.hidden` in `main()`).
+class _WindowsShell extends StatelessWidget {
+  const _WindowsShell({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ColoredBox(
+      color: theme.scaffoldBackgroundColor,
+      child: Column(
+        children: [
+          SizedBox(
+            height: kWindowCaptionHeight,
+            child: WindowCaption(
+              brightness: theme.brightness,
+              backgroundColor: theme.scaffoldBackgroundColor,
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 16,
+                    height: 16,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary,
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Text(
+                      'B',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'BloBnot',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(child: child),
+        ],
+      ),
     );
   }
 }
