@@ -30,16 +30,21 @@ class ShellCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final shell =
+        Theme.of(context).extension<ShellStyle>() ??
+        const ShellStyle(flat: false, radius: kCardRadius);
+    final radius = BorderRadius.circular(shell.radius);
     // Outer container carries only the soft shadow (no colour), so it does
     // not sit as a coloured DecoratedBox between ListTiles and their Material.
+    // The "Lite" style skips the shadow entirely — flat and cheaper to paint.
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(kCardRadius),
-        boxShadow: cardShadow(dark),
+        borderRadius: radius,
+        boxShadow: shell.flat ? const [] : cardShadow(dark),
       ),
       child: Material(
         color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(kCardRadius),
+        borderRadius: radius,
         clipBehavior: clip ? Clip.antiAlias : Clip.none,
         child: child,
       ),

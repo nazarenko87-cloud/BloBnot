@@ -69,6 +69,43 @@ class _EditorPaneState extends State<EditorPane> {
     });
   }
 
+  /// Keep the caret's line inside the visible viewport of the outer
+  /// [_scroll] view. The `TextField` here is unbounded (`expands: false`
+  /// inside a `SingleChildScrollView`) so it never scrolls itself as the
+  /// note grows — without this, typing past the bottom of a small window
+  /// wrote new lines the toolbar/panels below the editor were covering.
+  void _ensureCaretVisible(double scale) {
+    if (!_scroll.hasClients) return;
+    final sel = _textController.selection;
+    if (!sel.isValid) return;
+    final text = _textController.text;
+    final caret = sel.baseOffset.clamp(0, text.length);
+    final line = '\n'.allMatches(text.substring(0, caret)).length;
+    final lineHeight = 14 * scale * 1.5;
+    final caretTop = line * lineHeight;
+    final caretBottom = caretTop + lineHeight;
+    final position = _scroll.position;
+    final viewTop = position.pixels;
+    final viewBottom = viewTop + position.viewportDimension;
+    const margin = 8.0;
+    if (caretBottom + margin > viewBottom) {
+      _scroll.animateTo(
+        (caretBottom + margin - position.viewportDimension).clamp(
+          0,
+          position.maxScrollExtent,
+        ),
+        duration: const Duration(milliseconds: 100),
+        curve: Curves.easeOut,
+      );
+    } else if (caretTop - margin < viewTop) {
+      _scroll.animateTo(
+        (caretTop - margin).clamp(0, position.maxScrollExtent),
+        duration: const Duration(milliseconds: 100),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
   /// Replace the whole body from outside the TextField (checkbox toggles,
   /// find&replace) and persist.
   void _setBody(String body) {
@@ -714,6 +751,11 @@ class _EditorPaneState extends State<EditorPane> {
       controller: _scroll,
       child: SingleChildScrollView(
         controller: _scroll,
+        // Bottom padding keeps the last line clear of whatever sits right
+        // below the editor (attachments/backlinks panels, or the toolbar on
+        // a narrow/mobile window) instead of the caret writing flush against
+        // the very edge of the visible area.
+        padding: const EdgeInsets.only(bottom: 32),
         child: IntrinsicHeight(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -756,6 +798,9 @@ class _EditorPaneState extends State<EditorPane> {
                       controller.editCurrentBody(v);
                       _schedulePreview();
                       _maybeAutocomplete(context);
+                      WidgetsBinding.instance.addPostFrameCallback(
+                        (_) => _ensureCaretVisible(scale),
+                      );
                     },
                   ),
                 ),

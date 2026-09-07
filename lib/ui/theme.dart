@@ -22,6 +22,7 @@ class ThemeStyle {
     required this.darkSurface,
     required this.lightScaffold,
     required this.lightSurface,
+    this.flat = false,
   });
 
   final String id;
@@ -30,6 +31,11 @@ class ThemeStyle {
   final Color darkSurface;
   final Color lightScaffold;
   final Color lightSurface;
+
+  /// Minimal/lightweight rendering: flat cards (no shadow, no radius, no
+  /// blur) instead of the floating v2.0 shell look — cheaper to paint and
+  /// visually the plainest option (used by the "Lite" style).
+  final bool flat;
 }
 
 const List<ThemeStyle> kThemeStyles = [
@@ -74,6 +80,17 @@ const List<ThemeStyle> kThemeStyles = [
     lightScaffold: Color(0xFFF0E9DA),
     lightSurface: Color(0xFFFBF7EF),
   ),
+  // Minimalistic & lightweight: near-monochrome, no card shadows/rounding —
+  // the plainest, cheapest-to-paint option.
+  ThemeStyle(
+    id: 'lite',
+    label: 'Lite',
+    darkScaffold: Color(0xFF1A1A1A),
+    darkSurface: Color(0xFF222222),
+    lightScaffold: Color(0xFFFAFAFA),
+    lightSurface: Color(0xFFFFFFFF),
+    flat: true,
+  ),
 ];
 
 ThemeStyle styleById(String id) => kThemeStyles.firstWhere(
@@ -103,6 +120,24 @@ List<BoxShadow> cardShadow(bool dark) => [
     offset: const Offset(0, 4),
   ),
 ];
+
+/// Per-style shell metrics carried on [ThemeData] so [ShellCard] can render
+/// the "Lite" style flat (no shadow, square-ish corners) without every call
+/// site needing to know which style is active.
+class ShellStyle extends ThemeExtension<ShellStyle> {
+  const ShellStyle({required this.flat, required this.radius});
+
+  final bool flat;
+  final double radius;
+
+  @override
+  ShellStyle copyWith({bool? flat, double? radius}) =>
+      ShellStyle(flat: flat ?? this.flat, radius: radius ?? this.radius);
+
+  @override
+  ShellStyle lerp(ThemeExtension<ShellStyle>? other, double t) =>
+      other is ShellStyle && t >= 0.5 ? other : this;
+}
 
 ThemeMode themeModeOf(String mode) => switch (mode) {
   'light' => ThemeMode.light,
@@ -136,5 +171,8 @@ ThemeData buildTheme({
       cursorColor: accent,
       selectionColor: accent.withValues(alpha: 0.3),
     ),
+    extensions: [
+      ShellStyle(flat: style.flat, radius: style.flat ? 8 : kCardRadius),
+    ],
   );
 }

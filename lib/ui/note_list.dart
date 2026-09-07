@@ -51,9 +51,21 @@ final ButtonStyle _compactButton = IconButton.styleFrom(
 );
 
 class _NoteListState extends State<NoteList> {
+  final _searchController = TextEditingController();
   String _query = '';
   _Sort _sort = _Sort.name;
   String? _glyphFilter;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _query = '');
+  }
 
   int _compare(Note a, Note b) => switch (_sort) {
     _Sort.name => a.titleLower.compareTo(b.titleLower),
@@ -138,9 +150,17 @@ class _NoteListState extends State<NoteList> {
             children: [
               Expanded(
                 child: TextField(
+                  controller: _searchController,
                   decoration: InputDecoration(
                     hintText: 'Search notes…',
                     prefixIcon: const Icon(Icons.search, size: 18),
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear search',
+                            icon: const Icon(Icons.close, size: 16),
+                            onPressed: _clearSearch,
+                          ),
                     isDense: true,
                     filled: true,
                     fillColor: accent.withValues(alpha: 0.06),
