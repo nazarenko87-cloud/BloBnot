@@ -103,10 +103,10 @@ class _WindowsShell extends StatelessWidget {
                       borderRadius: BorderRadius.circular(5),
                     ),
                     alignment: Alignment.center,
-                    child: const Text(
+                    child: Text(
                       'B',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: onAccent(theme.colorScheme.primary),
                         fontWeight: FontWeight.w800,
                         fontSize: 10,
                       ),

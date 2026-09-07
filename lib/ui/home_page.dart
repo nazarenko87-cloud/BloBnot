@@ -36,11 +36,15 @@ class ShellCard extends StatelessWidget {
     final radius = BorderRadius.circular(shell.radius);
     // Outer container carries only the soft shadow (no colour), so it does
     // not sit as a coloured DecoratedBox between ListTiles and their Material.
-    // The "Lite" style skips the shadow entirely — flat and cheaper to paint.
+    // The "Lite" style skips the shadow for a hairline border instead —
+    // flat, newspaper-column look, cheaper to paint.
     return Container(
       decoration: BoxDecoration(
         borderRadius: radius,
         boxShadow: shell.flat ? const [] : cardShadow(dark),
+        border: shell.borderColor == null
+            ? null
+            : Border.all(color: shell.borderColor!),
       ),
       child: Material(
         color: Theme.of(context).colorScheme.surface,
@@ -166,10 +170,10 @@ class _HomePageState extends State<HomePage> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 alignment: Alignment.center,
-                child: const Text(
+                child: Text(
                   'B',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: onAccent(accent),
                     fontWeight: FontWeight.w800,
                     fontSize: 18,
                   ),
@@ -408,10 +412,10 @@ class _HomePageState extends State<HomePage> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     alignment: Alignment.center,
-                    child: const Text(
+                    child: Text(
                       'B',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: onAccent(accent),
                         fontWeight: FontWeight.w800,
                         fontSize: 18,
                       ),

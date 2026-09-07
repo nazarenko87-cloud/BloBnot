@@ -483,6 +483,7 @@ class _EditorPaneState extends State<EditorPane> {
     // On mobile the note title already sits in the AppBar — showing it again
     // here would just duplicate it and burn scarce vertical space.
     final isMobile = MediaQuery.sizeOf(context).width < kMobileBreakpoint;
+    final shell = Theme.of(context).extension<ShellStyle>();
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 12, 4),
       child: Row(
@@ -494,9 +495,15 @@ class _EditorPaneState extends State<EditorPane> {
                 if (!isMobile)
                   Text(
                     note.title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
+                      fontFamily: shell?.serifTitles ?? false
+                          ? 'Georgia'
+                          : null,
+                      fontFamilyFallback: shell?.serifTitles ?? false
+                          ? kMastheadFontFallback
+                          : null,
                     ),
                   ),
                 Wrap(

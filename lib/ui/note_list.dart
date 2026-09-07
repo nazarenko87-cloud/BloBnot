@@ -6,6 +6,7 @@ import '../models/note.dart';
 import '../state/vault_controller.dart';
 import 'glyph_avatar.dart';
 import 'pulse.dart';
+import 'theme.dart';
 
 class NoteList extends StatefulWidget {
   const NoteList({
@@ -77,6 +78,9 @@ class _NoteListState extends State<NoteList> {
   Widget build(BuildContext context) {
     final controller = context.watch<VaultController>();
     final accent = Theme.of(context).colorScheme.primary;
+    final shell =
+        Theme.of(context).extension<ShellStyle>() ??
+        const ShellStyle(flat: false, radius: kCardRadius);
     final q = _query.toLowerCase();
     final filtered =
         controller.notes
@@ -121,19 +125,26 @@ class _NoteListState extends State<NoteList> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 alignment: Alignment.center,
-                child: const Text(
+                child: Text(
                   'B',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: onAccent(accent),
                     fontWeight: FontWeight.w800,
                     fontSize: 15,
                   ),
                 ),
               ),
               const SizedBox(width: 8),
-              const Text(
+              Text(
                 'BloBnot',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  fontFamily: shell.serifTitles ? 'Georgia' : null,
+                  fontFamilyFallback: shell.serifTitles
+                      ? kMastheadFontFallback
+                      : null,
+                ),
               ),
               const SizedBox(width: 6),
               Text(

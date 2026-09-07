@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'theme.dart';
+
 /// Gentle attention pulse (scale + glow) used for reminder indicators.
 class Pulse extends StatefulWidget {
   const Pulse({super.key, required this.enabled, required this.child});
@@ -48,6 +50,18 @@ class _PulseState extends State<Pulse> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context) {
     if (!widget.enabled) return widget.child;
     final accent = Theme.of(context).colorScheme.primary;
+    // The "Lite" style asked for as little motion as the newspaper/TXT-file
+    // look it imitates — swap the glow+scale animation for a plain static
+    // ring so the reminder is still visible, just not moving.
+    if (Theme.of(context).extension<ShellStyle>()?.reducedMotion ?? false) {
+      return Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: accent, width: 1.4),
+        ),
+        child: widget.child,
+      );
+    }
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {

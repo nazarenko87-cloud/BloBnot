@@ -80,15 +80,17 @@ const List<ThemeStyle> kThemeStyles = [
     lightScaffold: Color(0xFFF0E9DA),
     lightSurface: Color(0xFFFBF7EF),
   ),
-  // Minimalistic & lightweight: near-monochrome, no card shadows/rounding —
-  // the plainest, cheapest-to-paint option.
+  // "Newsprint": black-and-white newspaper / TXT-file look — no accent
+  // colour at all (buildTheme ignores accentIndex for this style), flat
+  // hairline-bordered cards instead of shadows, fewer animations. See
+  // buildTheme() for the rest of the grayscale/rule palette.
   ThemeStyle(
     id: 'lite',
     label: 'Lite',
-    darkScaffold: Color(0xFF1A1A1A),
-    darkSurface: Color(0xFF222222),
-    lightScaffold: Color(0xFFFAFAFA),
-    lightSurface: Color(0xFFFFFFFF),
+    darkScaffold: Color(0xFF161616),
+    darkSurface: Color(0xFF1C1C1C),
+    lightScaffold: Color(0xFFF1F1EF),
+    lightSurface: Color(0xFFF8F8F7),
     flat: true,
   ),
 ];
@@ -97,6 +99,14 @@ ThemeStyle styleById(String id) => kThemeStyles.firstWhere(
   (s) => s.id == id,
   orElse: () => kThemeStyles.first,
 );
+
+/// Readable text colour for content painted directly on [accent] — needed
+/// because "Lite" makes accent literal ink/paper (near-black or near-white
+/// depending on brightness), so a hardcoded white label would vanish on the
+/// dark-mode ink square. Plain luminance check; fine for every other style
+/// too since their accents are all mid-saturation.
+Color onAccent(Color accent) =>
+    accent.computeLuminance() > 0.5 ? const Color(0xFF171717) : Colors.white;
 
 /// Fixed sage-green used for project tags and the activity heatmap, so those
 /// read as green regardless of the chosen accent (matches the v2.0 look).
@@ -121,23 +131,57 @@ List<BoxShadow> cardShadow(bool dark) => [
   ),
 ];
 
-/// Per-style shell metrics carried on [ThemeData] so [ShellCard] can render
-/// the "Lite" style flat (no shadow, square-ish corners) without every call
-/// site needing to know which style is active.
+/// Per-style shell metrics carried on [ThemeData] so [ShellCard] (and a
+/// couple of other spots) can render the "Lite" style — flat, square,
+/// hairline-bordered, quieter — without every call site needing to know
+/// which style is active.
 class ShellStyle extends ThemeExtension<ShellStyle> {
-  const ShellStyle({required this.flat, required this.radius});
+  const ShellStyle({
+    required this.flat,
+    required this.radius,
+    this.borderColor,
+    this.reducedMotion = false,
+    this.serifTitles = false,
+  });
 
   final bool flat;
   final double radius;
 
+  /// Hairline card border used instead of a shadow when [flat] is true.
+  final Color? borderColor;
+
+  /// Skips decorative-only animation (currently: the reminder glyph pulse) —
+  /// used by the newspaper/TXT-file "Lite" style, which asked for as little
+  /// motion as the medium it imitates.
+  final bool reducedMotion;
+
+  /// Renders the wordmark and note titles in a serif "masthead" face
+  /// instead of the app's usual sans/mono — a Lite-only touch.
+  final bool serifTitles;
+
   @override
-  ShellStyle copyWith({bool? flat, double? radius}) =>
-      ShellStyle(flat: flat ?? this.flat, radius: radius ?? this.radius);
+  ShellStyle copyWith({
+    bool? flat,
+    double? radius,
+    Color? borderColor,
+    bool? reducedMotion,
+    bool? serifTitles,
+  }) => ShellStyle(
+    flat: flat ?? this.flat,
+    radius: radius ?? this.radius,
+    borderColor: borderColor ?? this.borderColor,
+    reducedMotion: reducedMotion ?? this.reducedMotion,
+    serifTitles: serifTitles ?? this.serifTitles,
+  );
 
   @override
   ShellStyle lerp(ThemeExtension<ShellStyle>? other, double t) =>
       other is ShellStyle && t >= 0.5 ? other : this;
 }
+
+/// System serif fallback stack used for Lite's "masthead" headings — no new
+/// font asset, so the lightweight style stays lightweight.
+const List<String> kMastheadFontFallback = ['Georgia', 'Times New Roman'];
 
 ThemeMode themeModeOf(String mode) => switch (mode) {
   'light' => ThemeMode.light,
@@ -151,12 +195,20 @@ ThemeData buildTheme({
   required bool dark,
 }) {
   final style = styleById(styleId);
-  final accent = kAccents[accentIndex.clamp(0, kAccents.length - 1)];
   final base = dark
       ? ThemeData.dark(useMaterial3: true)
       : ThemeData.light(useMaterial3: true);
   final scaffold = dark ? style.darkScaffold : style.lightScaffold;
   final surface = dark ? style.darkSurface : style.lightSurface;
+
+  // "Lite" is deliberately monochrome — a newspaper/TXT-file look, so the
+  // chosen accent colour is ignored on purpose and "primary" becomes plain
+  // ink instead. Selection/active states invert ink↔paper rather than tint.
+  final rule = dark ? const Color(0xFF333331) : const Color(0xFFC9C9C6);
+  final ink = dark ? const Color(0xFFE9E9E6) : const Color(0xFF171717);
+  final accent = style.flat
+      ? ink
+      : kAccents[accentIndex.clamp(0, kAccents.length - 1)];
 
   return base.copyWith(
     scaffoldBackgroundColor: scaffold,
@@ -166,13 +218,19 @@ ThemeData buildTheme({
       surface: surface,
     ),
     appBarTheme: base.appBarTheme.copyWith(backgroundColor: scaffold),
-    dividerColor: dark ? Colors.white12 : Colors.black12,
+    dividerColor: style.flat ? rule : (dark ? Colors.white12 : Colors.black12),
     textSelectionTheme: TextSelectionThemeData(
       cursorColor: accent,
       selectionColor: accent.withValues(alpha: 0.3),
     ),
     extensions: [
-      ShellStyle(flat: style.flat, radius: style.flat ? 8 : kCardRadius),
+      ShellStyle(
+        flat: style.flat,
+        radius: style.flat ? 0 : kCardRadius,
+        borderColor: style.flat ? rule : null,
+        reducedMotion: style.flat,
+        serifTitles: style.flat,
+      ),
     ],
   );
 }
