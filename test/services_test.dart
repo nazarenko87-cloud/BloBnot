@@ -51,6 +51,24 @@ void main() {
       expect(await store.exists('doc (1).txt'), isFalse);
     });
 
+    test('addBytes writes raw bytes (pasted image) and de-duplicates too', () async {
+      final store = AttachmentStore(tmp.path);
+
+      final first = await store.addBytes('screenshot.png', [1, 2, 3]);
+      final second = await store.addBytes('screenshot.png', [4, 5, 6]);
+
+      expect(first, 'screenshot.png');
+      expect(second, 'screenshot (1).png');
+      expect(
+        await File(store.pathOf('screenshot.png')).readAsBytes(),
+        [1, 2, 3],
+      );
+      expect(
+        await File(store.pathOf('screenshot (1).png')).readAsBytes(),
+        [4, 5, 6],
+      );
+    });
+
     test('referencedIn finds attachment links in note body', () {
       const body = 'Text [📎 a.pdf](attachments/a.pdf) and '
           '[x](attachments/b%20c.png) but not [w](https://e.com/attachments/z).';

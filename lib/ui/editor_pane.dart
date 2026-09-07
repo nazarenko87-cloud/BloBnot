@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
+import 'package:pasteboard/pasteboard.dart';
 import 'package:provider/provider.dart';
 
 import '../models/note.dart';
@@ -714,25 +715,63 @@ class _EditorPaneState extends State<EditorPane> {
     final store = AttachmentStore(root);
     final links = StringBuffer();
     for (final path in paths) {
-      final name = await store.add(path);
-      final ext = name.contains('.')
-          ? name.substring(name.lastIndexOf('.')).toLowerCase()
-          : '';
-      final img = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}.contains(ext);
-      final encoded = 'attachments/${Uri.encodeComponent(name)}';
-      links.write(img ? '![$name]($encoded)\n' : '[📎 $name]($encoded)\n');
+      links.write(_linkFor(await store.add(path)));
     }
+    _insertAtCursor(links.toString());
+    controller.editCurrentBody(_textController.text);
+  }
+
+  static const _imageExts = {'.png', '.jpg', '.jpeg', '.gif', '.webp'};
+
+  /// Markdown snippet for an attachment already saved under [name] — an
+  /// image embed for picture types, a plain file link otherwise. Shared by
+  /// the file picker/drag-drop path and the clipboard-paste path.
+  static String _linkFor(String name) {
+    final ext = name.contains('.')
+        ? name.substring(name.lastIndexOf('.')).toLowerCase()
+        : '';
+    final encoded = 'attachments/${Uri.encodeComponent(name)}';
+    return _imageExts.contains(ext)
+        ? '![$name]($encoded)\n'
+        : '[📎 $name]($encoded)\n';
+  }
+
+  void _insertAtCursor(String text) {
     final sel = _textController.selection;
     final offset = sel.isValid ? sel.start : _textController.text.length;
     _textController.text = _textController.text.replaceRange(
       offset,
       sel.isValid ? sel.end : offset,
-      links.toString(),
+      text,
     );
     _textController.selection = TextSelection.collapsed(
-      offset: offset + links.length,
+      offset: offset + text.length,
     );
-    controller.editCurrentBody(_textController.text);
+  }
+
+  /// Overrides the TextField's default Ctrl+V: an image on the clipboard
+  /// (e.g. a screenshot) is saved into the vault's attachments and inserted
+  /// inline, exactly like a dragged-in file; plain text falls back to the
+  /// normal paste.
+  Future<void> _handlePaste(BuildContext context) async {
+    final image = await Pasteboard.image;
+    if (!context.mounted) return;
+    if (image != null) {
+      final controller = context.read<VaultController>();
+      final root = controller.vaultRoot;
+      if (root == null) return;
+      final store = AttachmentStore(root);
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final name = await store.addBytes('screenshot-$stamp.png', image);
+      _insertAtCursor(_linkFor(name));
+      controller.editCurrentBody(_textController.text);
+      _schedulePreview();
+      return;
+    }
+    final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+    if (text == null || text.isEmpty) return;
+    _insertAtCursor(text);
+    _commitText();
   }
 
   Widget _body(BuildContext context, Note note) {
@@ -771,44 +810,57 @@ class _EditorPaneState extends State<EditorPane> {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: TextField(
-                    controller: _textController,
-                    focusNode: _focus,
-                    maxLines: null,
-                    expands: false,
-                    keyboardType: TextInputType.multiline,
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      height: 1.5,
-                      fontSize: 14 * scale,
-                    ),
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      isCollapsed: true,
-                    ),
-                    // Right-click menu gains "Reminder on line…".
-                    contextMenuBuilder: (context, editableTextState) =>
-                        AdaptiveTextSelectionToolbar.buttonItems(
-                          anchors: editableTextState.contextMenuAnchors,
-                          buttonItems: [
-                            ...editableTextState.contextMenuButtonItems,
-                            ContextMenuButtonItem(
-                              label: 'Reminder on line…',
-                              onPressed: () {
-                                ContextMenuController.removeAny();
-                                _insertLineReminder(context);
-                              },
-                            ),
-                          ],
-                        ),
-                    onChanged: (v) {
-                      controller.editCurrentBody(v);
-                      _schedulePreview();
-                      _maybeAutocomplete(context);
-                      WidgetsBinding.instance.addPostFrameCallback(
-                        (_) => _ensureCaretVisible(scale),
-                      );
+                  child: Actions(
+                    // Overrides the TextField's built-in Ctrl+V — an image
+                    // on the clipboard is saved as an attachment instead of
+                    // being silently ignored/pasted as nothing.
+                    actions: <Type, Action<Intent>>{
+                      PasteTextIntent: CallbackAction<PasteTextIntent>(
+                        onInvoke: (intent) {
+                          _handlePaste(context);
+                          return null;
+                        },
+                      ),
                     },
+                    child: TextField(
+                      controller: _textController,
+                      focusNode: _focus,
+                      maxLines: null,
+                      expands: false,
+                      keyboardType: TextInputType.multiline,
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        height: 1.5,
+                        fontSize: 14 * scale,
+                      ),
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        isCollapsed: true,
+                      ),
+                      // Right-click menu gains "Reminder on line…".
+                      contextMenuBuilder: (context, editableTextState) =>
+                          AdaptiveTextSelectionToolbar.buttonItems(
+                            anchors: editableTextState.contextMenuAnchors,
+                            buttonItems: [
+                              ...editableTextState.contextMenuButtonItems,
+                              ContextMenuButtonItem(
+                                label: 'Reminder on line…',
+                                onPressed: () {
+                                  ContextMenuController.removeAny();
+                                  _insertLineReminder(context);
+                                },
+                              ),
+                            ],
+                          ),
+                      onChanged: (v) {
+                        controller.editCurrentBody(v);
+                        _schedulePreview();
+                        _maybeAutocomplete(context);
+                        WidgetsBinding.instance.addPostFrameCallback(
+                          (_) => _ensureCaretVisible(scale),
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -863,8 +915,108 @@ class _EditorPaneState extends State<EditorPane> {
           if (src.startsWith('assets/')) {
             return Image.asset(src, width: 72, height: 72);
           }
+          if (src.startsWith('attachments/')) {
+            final root = context.read<VaultController>().vaultRoot;
+            if (root == null) return Text(config.alt ?? src);
+            final name = Uri.decodeComponent(
+              src.substring('attachments/'.length),
+            );
+            final file = File(AttachmentStore(root).pathOf(name));
+            return _AttachmentThumbnail(file: file, alt: config.alt ?? name);
+          }
           return Text(config.alt ?? src);
         },
+      ),
+    );
+  }
+}
+
+/// A bounded, clickable preview of an attached image (dropped, attached, or
+/// pasted from the clipboard) — tapping it opens [_ImageViewerDialog] with
+/// the full-size picture.
+class _AttachmentThumbnail extends StatelessWidget {
+  const _AttachmentThumbnail({required this.file, required this.alt});
+
+  final File file;
+  final String alt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => showDialog<void>(
+          context: context,
+          barrierColor: Colors.black87,
+          builder: (context) => _ImageViewerDialog(file: file, alt: alt),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 260, maxHeight: 200),
+            decoration: BoxDecoration(
+              border: Border.all(color: Theme.of(context).dividerColor),
+            ),
+            child: Image.file(
+              file,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stack) => Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.broken_image_outlined, size: 18),
+                    const SizedBox(width: 6),
+                    Text(alt, style: const TextStyle(fontSize: 12)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-size image view opened by tapping an [_AttachmentThumbnail]. Pinch
+/// or scroll to zoom, tap the backdrop or the close button to dismiss.
+class _ImageViewerDialog extends StatelessWidget {
+  const _ImageViewerDialog({required this.file, required this.alt});
+
+  final File file;
+  final String alt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(24),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          GestureDetector(
+            onTap: () => Navigator.pop(context),
+            child: InteractiveViewer(
+              child: Image.file(
+                file,
+                errorBuilder: (context, error, stack) => Text(
+                  alt,
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 0,
+            right: 0,
+            child: IconButton.filledTonal(
+              icon: const Icon(Icons.close),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+        ],
       ),
     );
   }

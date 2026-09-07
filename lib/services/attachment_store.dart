@@ -16,15 +16,31 @@ class AttachmentStore {
   /// Copy [sourcePath] into the attachments folder, de-duplicating the file
   /// name if needed. Returns the stored file name.
   Future<String> add(String sourcePath) async {
+    final name = await _reserveName(p.basename(sourcePath));
+    await File(sourcePath).copy(p.join(_dir.path, name));
+    return name;
+  }
+
+  /// Write raw [bytes] (e.g. an image pasted from the clipboard, which has
+  /// no source file to copy) under [suggestedName], de-duplicating the same
+  /// way as [add]. Returns the stored file name.
+  Future<String> addBytes(String suggestedName, List<int> bytes) async {
+    final name = await _reserveName(suggestedName);
+    await File(p.join(_dir.path, name)).writeAsBytes(bytes);
+    return name;
+  }
+
+  /// Picks a free file name in the attachments folder, appending " (n)"
+  /// before the extension on a collision — shared by [add] and [addBytes].
+  Future<String> _reserveName(String desiredName) async {
     await _dir.create(recursive: true);
-    final base = p.basenameWithoutExtension(sourcePath);
-    final ext = p.extension(sourcePath);
-    var name = p.basename(sourcePath);
+    final base = p.basenameWithoutExtension(desiredName);
+    final ext = p.extension(desiredName);
+    var name = desiredName;
     var i = 1;
     while (await File(p.join(_dir.path, name)).exists()) {
       name = '$base (${i++})$ext';
     }
-    await File(sourcePath).copy(p.join(_dir.path, name));
     return name;
   }
 
