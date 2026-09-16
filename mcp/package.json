@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "start": "node src/index.js",
+    "build:exe": "node build-exe.mjs",
     "test": "node --test"
   },
   "engines": {
@@ -21,5 +22,12 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^3.24.1"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "postject": "^1.0.0-alpha.6"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
 }

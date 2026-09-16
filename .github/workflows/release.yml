@@ -1,0 +1,144 @@
+name: Release
+
+# Push a version tag and this produces the whole release:
+#   git tag v2.2 && git push origin v2.2
+#
+# Assets: a Windows installer, a portable Windows zip, and the Android APK.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (without the leading v)'
+        required: true
+
+env:
+  FLUTTER_VERSION: '3.44.6'
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      value: ${{ steps.pick.outputs.value }}
+    steps:
+      - id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+
+      - name: Test and build the app
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+          flutter build windows --release
+
+      - name: Test and build the MCP server
+        working-directory: mcp
+        run: |
+          npm ci
+          npm test
+          npm run build:exe
+
+      - name: Build the installer
+        run: |
+          choco install innosetup --no-progress -y
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc /DAppVersion=${{ needs.version.outputs.value }} installer\blobnot.iss
+
+      # The portable zip is the same payload without an installer — some people
+      # prefer to unpack it, and it needs the data folder and DLLs to run.
+      - name: Package the portable zip
+        run: |
+          Compress-Archive -Path build\windows\x64\runner\Release\* `
+            -DestinationPath dist\BloBnot-${{ needs.version.outputs.value }}-windows-portable.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+
+  android:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build the APK
+        run: |
+          flutter pub get
+          flutter build apk --release
+          mkdir -p dist
+          mv build/app/outputs/flutter-apk/app-release.apk \
+             dist/BloBnot-${{ needs.version.outputs.value }}.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/*
+
+  release:
+    needs: [version, windows, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: BloBnot ${{ needs.version.outputs.value }}
+          draft: true
+          generate_release_notes: true
+          files: dist/*
+          body: |
+            ## Install
+
+            **Windows** — download `BloBnot-${{ needs.version.outputs.value }}-setup.exe` and run it.
+            No admin rights needed; it installs for the current user. The setup offers an optional
+            MCP server that lets Claude read and write your notes, and can connect it to Claude
+            Desktop for you.
+
+            Prefer no installer? `-windows-portable.zip` holds the same files — unpack the whole
+            archive and run `blobnot.exe` (it needs the `data` folder beside it).
+
+            **Android** — download the `.apk` and allow installing from an unknown source.
+            On first launch, pick a vault folder; a Google Drive folder syncs your notes across
+            devices.

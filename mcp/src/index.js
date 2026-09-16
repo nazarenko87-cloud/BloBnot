@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
+import { claudeConfigPath, register, unregister } from './claude-config.js';
 import { Vault, VaultError, buildRemindTag, resolveVaultRoot } from './vault.js';
 
 /**
@@ -13,13 +14,34 @@ import { Vault, VaultError, buildRemindTag, resolveVaultRoot } from './vault.js'
  * (Ctrl+R), which is how edits made here show up in an already-open window.
  */
 
-const server = new McpServer({ name: 'blobnot', version: '1.0.0' });
+const VERSION = '1.0.0';
+
+const server = new McpServer({ name: 'blobnot', version: VERSION });
+
+/** Command-line flags; anything left over is treated as the vault path. */
+const argv = process.argv.slice(2);
+const flag = (name) => argv.includes(`--${name}`);
+const value = (name) => {
+  const at = argv.indexOf(`--${name}`);
+  return at >= 0 ? argv[at + 1] : undefined;
+};
+const vaultArg = argv.find((a) => !a.startsWith('--') && argv[argv.indexOf(a) - 1] !== '--vault');
 
 /** Resolved once per process; the vault path does not change while running. */
 let vaultPromise;
 function getVault() {
-  vaultPromise ??= resolveVaultRoot(process.argv[2]).then((root) => new Vault(root));
+  vaultPromise ??= resolveVaultRoot(value('vault') ?? vaultArg).then((root) => new Vault(root));
   return vaultPromise;
+}
+
+/**
+ * How Claude Desktop should launch this server. A single-executable build is
+ * its own command; running from source needs node plus the script path.
+ */
+async function launchCommand() {
+  const sea = await import('node:sea').catch(() => null);
+  if (sea?.isSea?.()) return { command: process.execPath, args: [] };
+  return { command: process.execPath, args: [process.argv[1]] };
 }
 
 const json = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
@@ -317,5 +339,56 @@ server.registerTool(
   }),
 );
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+// --- entry point ---
+//
+// Normally this process IS the MCP server and stdout belongs to the protocol,
+// so nothing may be printed there. The setup flags below are the exception:
+// they do their work, report on stderr, and exit without starting a server.
+
+const USAGE = [
+  `blobnot-mcp ${VERSION} — MCP server for a BloBnot vault`,
+  '',
+  'Usage:',
+  '  blobnot-mcp [--vault <folder>]     run the server (stdio)',
+  '  blobnot-mcp --register [--vault <folder>]',
+  '                                    add it to Claude Desktop',
+  '  blobnot-mcp --unregister          remove it from Claude Desktop',
+  '',
+  'Without --vault the server uses BLOBNOT_VAULT, then the vault the',
+  'BloBnot desktop app opened last.',
+  '',
+].join('\n');
+
+async function main() {
+  if (flag('version')) {
+    process.stderr.write(`blobnot-mcp ${VERSION}\n`);
+    return;
+  }
+  if (flag('help')) {
+    process.stderr.write(USAGE);
+    return;
+  }
+
+  if (flag('unregister')) {
+    const file = await unregister();
+    process.stderr.write(
+      file ? `Removed "blobnot" from ${file}\n` : `Nothing to remove in ${claudeConfigPath()}\n`,
+    );
+    return;
+  }
+
+  if (flag('register')) {
+    const vault = value('vault') ?? vaultArg;
+    if (vault) await resolveVaultRoot(vault); // fail now, not at first use
+    const file = await register({ ...(await launchCommand()), vault });
+    process.stderr.write(`Registered "blobnot" in ${file}\nRestart Claude Desktop to pick it up.\n`);
+    return;
+  }
+
+  await server.connect(new StdioServerTransport());
+}
+
+main().catch((error) => {
+  process.stderr.write(`${error.message}\n`);
+  process.exit(1);
+});

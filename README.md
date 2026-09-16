@@ -28,19 +28,27 @@ lives outside the app folder, so it survives updates.
 
 ## Install
 
+Everything is on the [Releases page](https://github.com/nazarenko87-cloud/BloBnot/releases).
+
 ### Windows
 
-Grab `blobnot.exe` together with its `data/` folder and the `.dll` files from a release
-build, keep them in one folder, and run `blobnot.exe`. No installer, no admin rights —
-it is a portable app. On first launch it asks for a vault folder; pick any folder (an
-empty one is fine) and your notes live there from then on.
+Download `BloBnot-<version>-setup.exe` and run it. It installs for the current user, so
+there is no admin prompt, and it adds a Start Menu entry and a proper uninstaller. The
+setup also offers the optional **MCP server** and can connect it to Claude Desktop for
+you — see below.
+
+Prefer no installer? `BloBnot-<version>-windows-portable.zip` has the same files. Unpack
+the **whole** archive and run `blobnot.exe` — it needs the `data/` folder and the `.dll`
+files beside it.
+
+On first launch it asks for a vault folder. Pick any folder, empty is fine; your notes
+live there from then on.
 
 ### Android
 
-Install the `.apk`. Android will ask you to allow installing from an unknown source,
-since the build is not distributed through Play. On first launch, pick a vault folder
-through the system folder chooser — including a Google Drive folder, which is how the
-same notes reach your phone.
+Download the `.apk` and allow installing from an unknown source, since the build is not
+distributed through Play. On first launch, pick a vault folder through the system folder
+chooser — including a Google Drive folder, which is how the same notes reach your phone.
 
 ### Build from source
 
@@ -60,14 +68,39 @@ flutter build apk --release       # Android -> build/app/outputs/flutter-apk/
 searching notes, writing new ones, and setting reminders — all in the same files the app
 uses. It is entirely optional; the app does not need it and never talks to it.
 
+The easiest way to get it is the Windows installer — tick **MCP server** during setup,
+and optionally **Connect the MCP server to Claude Desktop**, which writes the config
+entry for you. The bundled build carries its own Node runtime, so nothing else is needed.
+
+From source instead:
+
 ```bash
 cd mcp
 npm install
 claude mcp add blobnot -- node "<full path>/mcp/src/index.js"
 ```
 
-See [mcp/README.md](mcp/README.md) for Claude Desktop setup, the tool list, and how the
-server and app share one vault safely.
+See [mcp/README.md](mcp/README.md) for the tool list, manual Claude Desktop setup, and
+how the server and app share one vault safely.
+
+## Releases
+
+Pushing a version tag builds and publishes everything through
+[GitHub Actions](.github/workflows/release.yml) — the installer, the portable zip and
+the APK, attached to a draft release:
+
+```bash
+git tag v2.2
+git push origin v2.2
+```
+
+To build the installer locally you need [Inno Setup 6](https://jrsoftware.org/isdl.php):
+
+```bash
+flutter build windows --release
+cd mcp && npm run build:exe && cd ..   # optional MCP component
+iscc /DAppVersion=2.2 installer/blobnot.iss
+```
 
 ## How it works
 

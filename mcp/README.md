@@ -40,7 +40,17 @@ only the app itself can read — set `BLOBNOT_VAULT` to a desktop folder instead
 claude mcp add blobnot -- node "D:/claude progects/blobnot/mcp/src/index.js"
 ```
 
-**Claude Desktop** — add this to `claude_desktop_config.json`
+**Claude Desktop, automatically** — let the server write its own config entry. It merges
+into the file, leaving any other servers alone, and keeps a `.bak` copy:
+
+```bash
+node src/index.js --register --vault "G:/My Drive/BLOB/BloknotVault"
+```
+
+`--unregister` removes it again. The Windows installer runs this for you when you tick
+"Connect the MCP server to Claude Desktop". Restart Claude Desktop afterwards.
+
+**Claude Desktop, by hand** — add this to `claude_desktop_config.json`
 (`%APPDATA%\Claude\claude_desktop_config.json` on Windows,
 `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS),
 then restart Claude Desktop:
@@ -101,6 +111,12 @@ Everything matches what the Flutter app expects:
 - `{{remind:2026-09-20T15:00}}` — inline reminder tag inside note text
 - `[[Wiki links]]`, `[[Note|alias]]`, `[[Note#Heading]]` — graph edges
 - `#tags` — parsed from note text, never stored separately
+
+## Standalone build
+
+`npm run build:exe` bundles the server and a Node runtime into a single executable
+(`build/blobnot-mcp.exe`, ~99 MB) using esbuild and Node's SEA support, so it runs on
+machines without Node installed. This is what the Windows installer ships.
 
 ## Tests
 
