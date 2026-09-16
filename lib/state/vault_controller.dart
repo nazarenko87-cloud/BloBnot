@@ -53,6 +53,12 @@ class VaultController extends ChangeNotifier {
   CalendarEventStore? _calendarStore;
   List<CalendarEvent> _events = [];
 
+  /// Message from the last failed [openVault]/[reload], or null if the last
+  /// attempt succeeded. The UI shows this instead of leaving [loading] stuck
+  /// forever — a real risk for a SAF tree backed by a cloud provider (e.g.
+  /// Google Drive), whose reads can throw on transient network errors.
+  String? _openError;
+
   /// Paths of notes open as tabs, in tab order.
   final List<String> _openPaths = [];
 
@@ -76,6 +82,7 @@ class VaultController extends ChangeNotifier {
   String? get vaultRoot => _storage?.id;
   bool get locked => _locked;
   String? get dueReminderTitle => _dueTitle;
+  String? get openError => _openError;
 
   DateTime? reminderFor(String title) => _reminders[title];
   bool isPinned(String title) => _pinned.contains(title);
@@ -238,41 +245,48 @@ class VaultController extends ChangeNotifier {
 
   Future<void> openVault(String root) async {
     _loading = true;
+    _openError = null;
     notifyListeners();
-    _storage = openBackend(root);
-    // Metadata lives alongside the vault on desktop, but app-private on Android
-    // (a SAF content:// tree is not reachable via dart:io).
-    final meta = await vaultMetaRoot(root);
-    _settingsStore = SettingsStore(meta);
-    _reminderStore = ReminderStore(meta);
-    _pinnedStore = PinnedStore(meta);
-    _projectColorsStore = ProjectColorsStore(meta);
-    _recentStore = RecentStore(meta);
-    _openPaths.clear();
-    _glyphStore = GlyphStore(meta);
-    _projectOrderStore = ProjectOrderStore(meta);
-    _calendarStore = CalendarEventStore(meta);
-    _settings = await _settingsStore!.load();
-    _reminders = await _reminderStore!.load();
-    _events = await _calendarStore!.load();
-    _pinned = await _pinnedStore!.load();
-    _projectColors = await _projectColorsStore!.load();
-    _tagGlyphs = await _glyphStore!.loadTagGlyphs();
-    _glyphOverrides = await _glyphStore!.loadOverrides();
-    _projectOrder = await _projectOrderStore!.load();
-    _recent = await _recentStore!.load();
-    _projects = await _storage!.listProjects();
-    _notes = await _storage!.loadNotes();
-    _current = _notes.isNotEmpty ? _notes.first : null;
-    if (_current != null) _openPaths.add(_current!.path);
-    await AppSettings.setLastVault(root);
-    _loading = false;
-    _reminderTimer?.cancel();
-    _reminderTimer = Timer.periodic(
-      const Duration(seconds: 30),
-      (_) => _checkDueReminders(),
-    );
-    notifyListeners();
+    try {
+      _storage = openBackend(root);
+      // Metadata lives alongside the vault on desktop, but app-private on
+      // Android (a SAF content:// tree is not reachable via dart:io).
+      final meta = await vaultMetaRoot(root);
+      _settingsStore = SettingsStore(meta);
+      _reminderStore = ReminderStore(meta);
+      _pinnedStore = PinnedStore(meta);
+      _projectColorsStore = ProjectColorsStore(meta);
+      _recentStore = RecentStore(meta);
+      _openPaths.clear();
+      _glyphStore = GlyphStore(meta);
+      _projectOrderStore = ProjectOrderStore(meta);
+      _calendarStore = CalendarEventStore(meta);
+      _settings = await _settingsStore!.load();
+      _reminders = await _reminderStore!.load();
+      _events = await _calendarStore!.load();
+      _pinned = await _pinnedStore!.load();
+      _projectColors = await _projectColorsStore!.load();
+      _tagGlyphs = await _glyphStore!.loadTagGlyphs();
+      _glyphOverrides = await _glyphStore!.loadOverrides();
+      _projectOrder = await _projectOrderStore!.load();
+      _recent = await _recentStore!.load();
+      _projects = await _storage!.listProjects();
+      _notes = await _storage!.loadNotes();
+      _current = _notes.isNotEmpty ? _notes.first : null;
+      if (_current != null) _openPaths.add(_current!.path);
+      await AppSettings.setLastVault(root);
+      _reminderTimer?.cancel();
+      _reminderTimer = Timer.periodic(
+        const Duration(seconds: 30),
+        (_) => _checkDueReminders(),
+      );
+    } catch (e) {
+      _storage = null;
+      _openError = 'Could not open vault: $e';
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
   }
 
   /// Re-reads the vault from disk — picks up notes changed outside the app
@@ -281,15 +295,21 @@ class VaultController extends ChangeNotifier {
   Future<void> reload() async {
     if (_storage == null) return;
     await _flushPendingSave();
-    _projects = await _storage!.listProjects();
-    _notes = await _storage!.loadNotes();
-    if (_current != null) {
-      _current = _notes.firstWhere(
-        (n) => n.path == _current!.path,
-        orElse: () => _notes.isNotEmpty ? _notes.first : _current!,
-      );
+    try {
+      _projects = await _storage!.listProjects();
+      _notes = await _storage!.loadNotes();
+      if (_current != null) {
+        _current = _notes.firstWhere(
+          (n) => n.path == _current!.path,
+          orElse: () => _notes.isNotEmpty ? _notes.first : _current!,
+        );
+      }
+      _openError = null;
+    } catch (e) {
+      _openError = 'Could not refresh vault: $e';
+    } finally {
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   void select(Note note) {

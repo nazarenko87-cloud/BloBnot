@@ -637,20 +637,27 @@ class _HomePageState extends State<HomePage> {
   Future<void> _refresh(BuildContext context) async {
     final controller = context.read<VaultController>();
     await controller.reload();
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Notes refreshed'),
-          duration: Duration(seconds: 1),
-        ),
-      );
-    }
+    if (!context.mounted) return;
+    final error = controller.openError;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(error ?? 'Notes refreshed'),
+        duration: Duration(seconds: error == null ? 1 : 5),
+      ),
+    );
   }
 
   Future<void> _pickVault(BuildContext context) async {
     final dir = await pickVaultId();
     if (dir == null || !context.mounted) return;
-    await context.read<VaultController>().openVault(dir);
+    final controller = context.read<VaultController>();
+    await controller.openVault(dir);
+    final error = controller.openError;
+    if (error != null && context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error), duration: const Duration(seconds: 6)));
+    }
   }
 
   Future<void> _newNote(BuildContext context, {String initialProject = ''}) async {

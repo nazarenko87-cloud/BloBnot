@@ -220,8 +220,17 @@ class _SettingsDialog extends StatelessWidget {
                     label: const Text('Choose folder…'),
                     onPressed: () async {
                       final dir = await pickVaultId();
-                      if (dir != null && context.mounted) {
-                        await context.read<VaultController>().openVault(dir);
+                      if (dir == null || !context.mounted) return;
+                      final controller = context.read<VaultController>();
+                      await controller.openVault(dir);
+                      final error = controller.openError;
+                      if (error != null && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(error),
+                            duration: const Duration(seconds: 6),
+                          ),
+                        );
                       }
                     },
                   ),
