@@ -10,7 +10,7 @@ import 'ui/home_page.dart';
 import 'ui/theme.dart';
 
 /// App version string surfaced in the About dialog. Keep in sync with pubspec.
-const String kAppVersion = '2.1';
+const String kAppVersion = '2.2';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
