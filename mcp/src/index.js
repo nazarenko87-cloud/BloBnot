@@ -4,7 +4,14 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 import { claudeConfigPath, register, unregister } from './claude-config.js';
-import { Vault, VaultError, buildRemindTag, resolveVaultRoot } from './vault.js';
+import {
+  Vault,
+  VaultError,
+  buildRemindTag,
+  cleanHotText,
+  hotStamp,
+  resolveVaultRoot,
+} from './vault.js';
 
 /**
  * MCP server over a BloBnot vault.
@@ -14,7 +21,7 @@ import { Vault, VaultError, buildRemindTag, resolveVaultRoot } from './vault.js'
  * (Ctrl+R), which is how edits made here show up in an already-open window.
  */
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 const server = new McpServer({ name: 'blobnot', version: VERSION });
 
@@ -306,6 +313,73 @@ server.registerTool(
     events.push(event);
     await vault.writeEvents(events);
     return json({ action: 'created', event });
+  }),
+);
+
+server.registerTool(
+  'list_hot_tasks',
+  {
+    title: 'List hot tasks',
+    description:
+      'Short running to-dos from the Hot tasks view: what is in progress, and what was done ' +
+      'recently (with when). Done tasks older than 30 days live in the app\'s archive.',
+    inputSchema: {},
+  },
+  tool(async (_args, vault) => {
+    const tasks = await vault.readHotTasks();
+    return json({
+      inProgress: tasks.filter((t) => !t.done).map((t) => t.text),
+      done: tasks.filter((t) => t.done).map((t) => ({ text: t.text, done: t.done })),
+    });
+  }),
+);
+
+server.registerTool(
+  'add_hot_task',
+  {
+    title: 'Add hot task',
+    description:
+      'Add a short to-do to the top of Hot tasks → In progress. Keep it to one line: ' +
+      'what needs doing, not a note.',
+    inputSchema: { text: z.string().describe('The task, one short line') },
+  },
+  tool(async ({ text: raw }, vault) => {
+    const task = cleanHotText(raw);
+    if (!task) return failure('Task text cannot be empty.');
+    const tasks = await vault.readHotTasks();
+    await vault.writeHotTasks([{ text: task, done: null }, ...tasks]);
+    return text(`Added hot task "${task}".`);
+  }),
+);
+
+server.registerTool(
+  'complete_hot_task',
+  {
+    title: 'Complete hot task',
+    description:
+      'Mark an in-progress hot task done, stamped with the current time. Matches the exact ' +
+      'text first, then case-insensitively, then a unique partial match.',
+    inputSchema: { text: z.string().describe('The task text, or a unique part of it') },
+  },
+  tool(async ({ text: query }, vault) => {
+    const tasks = await vault.readHotTasks();
+    const open = tasks.filter((t) => !t.done);
+    const q = cleanHotText(query).toLowerCase();
+    const partial = open.filter((t) => t.text.toLowerCase().includes(q));
+    const match =
+      open.find((t) => t.text === cleanHotText(query)) ??
+      open.find((t) => t.text.toLowerCase() === q) ??
+      (partial.length === 1 ? partial[0] : null);
+    if (!match) {
+      return failure(
+        partial.length > 1
+          ? `"${query}" matches ${partial.length} tasks: ${partial.map((t) => t.text).join('; ')}`
+          : `No in-progress hot task matches "${query}".`,
+      );
+    }
+    const stamp = hotStamp(new Date());
+    await vault.writeHotTasks(tasks.map((t) => (t === match ? { ...t, done: stamp } : t)));
+    return text(`Done: "${match.text}" at ${stamp}.`);
   }),
 );
 

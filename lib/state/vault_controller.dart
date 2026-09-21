@@ -15,6 +15,7 @@ import '../services/reminder_store.dart';
 import '../services/settings_store.dart';
 import '../services/meta_paths.dart';
 import '../services/vault_backend.dart';
+import '../utils/hot_tasks.dart';
 import '../utils/line_reminders.dart';
 
 /// Single source of truth for the open vault: notes, selection, theme,
@@ -59,6 +60,21 @@ class VaultController extends ChangeNotifier {
   /// Google Drive), whose reads can throw on transient network errors.
   String? _openError;
 
+  List<HotTask> _hot = [];
+  int _hotSeq = 0;
+  int? _lastCompletedHotId;
+
+  /// Writes of `_hot/tasks.md` run one after another, so a fast run of
+  /// clicks can never land an older snapshot on top of a newer one.
+  Future<void> _hotWrites = Future.value();
+
+  /// Text inserted into the open editor from outside it (the calculator's
+  /// "Insert into note"). The editor listens; see [insertIntoNote].
+  final _insertRequests = StreamController<String>.broadcast();
+
+  /// Queued hot-task saves can finish after the app shut the controller down.
+  bool _disposed = false;
+
   /// Paths of notes open as tabs, in tab order.
   final List<String> _openPaths = [];
 
@@ -83,6 +99,21 @@ class VaultController extends ChangeNotifier {
   bool get locked => _locked;
   String? get dueReminderTitle => _dueTitle;
   String? get openError => _openError;
+
+  /// In-progress hot tasks, newest first.
+  List<HotTask> get hotInProgress =>
+      List.unmodifiable(_hot.where((t) => !t.isDone));
+
+  /// Done hot tasks, most recently completed first.
+  List<HotTask> get hotDone =>
+      List.unmodifiable(sortDone(_hot.where((t) => t.isDone)));
+
+  int get hotInProgressCount => _hot.where((t) => !t.isDone).length;
+
+  /// The task completed last in this session, so the UI can highlight it.
+  int? get lastCompletedHotId => _lastCompletedHotId;
+
+  Stream<String> get insertRequests => _insertRequests.stream;
 
   DateTime? reminderFor(String title) => _reminders[title];
   bool isPinned(String title) => _pinned.contains(title);
@@ -247,6 +278,8 @@ class VaultController extends ChangeNotifier {
     _loading = true;
     _openError = null;
     notifyListeners();
+    // Let queued hot-task saves reach the vault they were made in first.
+    await _hotWrites;
     try {
       _storage = openBackend(root);
       // Metadata lives alongside the vault on desktop, but app-private on
@@ -272,6 +305,10 @@ class VaultController extends ChangeNotifier {
       _recent = await _recentStore!.load();
       _projects = await _storage!.listProjects();
       _notes = await _storage!.loadNotes();
+      _hot = [];
+      _hotBaseline = {};
+      _lastCompletedHotId = null;
+      await _loadHot();
       _current = _notes.isNotEmpty ? _notes.first : null;
       if (_current != null) _openPaths.add(_current!.path);
       await AppSettings.setLastVault(root);
@@ -298,6 +335,7 @@ class VaultController extends ChangeNotifier {
     try {
       _projects = await _storage!.listProjects();
       _notes = await _storage!.loadNotes();
+      await _loadHot();
       if (_current != null) {
         _current = _notes.firstWhere(
           (n) => n.path == _current!.path,
@@ -582,6 +620,172 @@ class VaultController extends ChangeNotifier {
     _flushPendingSave();
     _saveTimer?.cancel();
     _reminderTimer?.cancel();
+    _insertRequests.close();
+    _disposed = true;
     super.dispose();
+  }
+
+  // --- insert from outside the editor ---
+
+  /// Put [text] into the current note: at the caret when the editor is on
+  /// screen, otherwise on a new line at the end. False when no note is open.
+  bool insertIntoNote(String text) {
+    final note = _current;
+    if (note == null) return false;
+    if (_insertRequests.hasListener) {
+      _insertRequests.add(text);
+    } else {
+      final body = note.body;
+      final sep = body.isEmpty || body.endsWith('\n') ? '' : '\n';
+      editCurrentBody('$body$sep$text');
+    }
+    return true;
+  }
+
+  // --- hot tasks ---
+
+  String? _hotError;
+
+  /// Why `_hot/tasks.md` could not be read, if it could not. Notes still
+  /// open — the hot tasks file is never allowed to block the vault.
+  String? get hotError => _hotError;
+
+  /// Lines of `tasks.md` as this app last read or wrote them — anything else
+  /// found there on the next save was changed by someone else.
+  Set<String> _hotBaseline = {};
+
+  /// Bumped on every in-app change, so a load that finishes after the user
+  /// already changed something does not overwrite that change.
+  int _hotGeneration = 0;
+
+  /// Every read-modify-write of the hot files goes through this one queue:
+  /// loading, archiving and saving can then never interleave.
+  Future<void> _queueHot(Future<void> Function() job) {
+    final run = _hotWrites.then((_) => job());
+    // Keep the queue alive after a failure; the caller still sees it.
+    _hotWrites = run.catchError((Object _) {});
+    return run;
+  }
+
+  void _notifyIfAlive() {
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<void> _loadHot() {
+    final storage = _storage;
+    if (storage == null) return Future.value();
+    final generation = _hotGeneration;
+    return _queueHot(() async {
+      try {
+        final now = DateTime.now();
+        final parsed = parseHotTasks(
+          await storage.readText(kHotTasksPath),
+          now: now,
+          nextId: () => _hotSeq++,
+        );
+        if (!identical(_storage, storage) || _hotGeneration != generation) {
+          return; // vault switched, or the user changed tasks meanwhile
+        }
+        final split = splitForArchive(parsed, now);
+        _hot = split.keep;
+        _hotBaseline = parsed.map(hotTaskLine).toSet();
+        if (split.archive.isNotEmpty) {
+          final existing = await storage.readText(kHotArchivePath);
+          await storage.writeText(
+            kHotArchivePath,
+            appendToArchive(existing, split.archive, now),
+          );
+          final kept = split.keep;
+          await storage.writeText(kHotTasksPath, serializeHotTasks(kept));
+          _hotBaseline = kept.map(hotTaskLine).toSet();
+        }
+        _hotError = null;
+      } on Exception catch (e) {
+        _hotError = 'Could not load hot tasks: $e';
+      }
+    });
+  }
+
+  /// Writes the current list — after folding in anything someone else wrote
+  /// to the file since this app last touched it (see [mergeExternal]).
+  Future<void> _saveHot() {
+    final storage = _storage;
+    if (storage == null) return Future.value();
+    return _queueHot(() async {
+      if (!identical(_storage, storage)) return;
+      final disk = parseHotTasks(
+        await storage.readText(kHotTasksPath),
+        now: DateTime.now(),
+      );
+      if (!identical(_storage, storage)) return;
+      final merged = mergeExternal(
+        memory: _hot,
+        baseline: _hotBaseline,
+        disk: disk,
+        nextId: () => _hotSeq++,
+      );
+      if (serializeHotTasks(merged) != serializeHotTasks(_hot)) {
+        _hot = merged;
+        _notifyIfAlive();
+      }
+      final written = _hot;
+      await storage.writeText(kHotTasksPath, serializeHotTasks(written));
+      _hotBaseline = written.map(hotTaskLine).toSet();
+    });
+  }
+
+  HotTask? _hotById(int id) {
+    for (final t in _hot) {
+      if (t.id == id) return t;
+    }
+    return null;
+  }
+
+  Future<void> addHotTask(String text) {
+    final clean = cleanHotText(text);
+    if (clean.isEmpty || _storage == null) return Future.value();
+    _hot = [HotTask(id: _hotSeq++, text: clean), ..._hot];
+    return _hotChanged();
+  }
+
+  Future<void> completeHotTask(int id) {
+    final task = _hotById(id);
+    if (task == null || task.isDone) return Future.value();
+    final now = toMinute(DateTime.now());
+    _hot = [for (final t in _hot) t.id == id ? t.withDone(now) : t];
+    _lastCompletedHotId = id;
+    return _hotChanged();
+  }
+
+  /// Back to in progress, at the top — for undoing a mis-click.
+  Future<void> reopenHotTask(int id) {
+    final task = _hotById(id);
+    if (task == null || !task.isDone) return Future.value();
+    _hot = [task.withDone(null), ..._hot.where((t) => t.id != id)];
+    if (_lastCompletedHotId == id) _lastCompletedHotId = null;
+    return _hotChanged();
+  }
+
+  Future<void> deleteHotTask(int id) {
+    if (_hotById(id) == null) return Future.value();
+    _hot = _hot.where((t) => t.id != id).toList();
+    return _hotChanged();
+  }
+
+  Future<void> _hotChanged() {
+    _hotGeneration++;
+    notifyListeners();
+    return _saveHot();
+  }
+
+  /// Archived hot tasks, most recently completed first. Lines someone left
+  /// unchecked in the archive file by hand are not archived tasks; skip them.
+  Future<List<HotTask>> loadHotArchive() async {
+    final storage = _storage;
+    if (storage == null) return const [];
+    final text = await storage.readText(kHotArchivePath);
+    return sortDone(
+      parseHotTasks(text, now: DateTime.now()).where((t) => t.isDone),
+    );
   }
 }

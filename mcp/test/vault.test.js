@@ -75,6 +75,34 @@ test('reminders round-trip through reminders.json in the app format', async () =
   assert.deepEqual(await vault.readReminders(), raw);
 });
 
+test('hot tasks: reads the app format and is not listed as a note or project', async () => {
+  await fs.mkdir(path.join(root, '_hot'), { recursive: true });
+  await fs.writeFile(
+    path.join(root, '_hot', 'tasks.md'),
+    '# Hot tasks\r\n\r\n- [ ] Call Oleg\r\n- [x] Send invoice ✓ 2026-09-21 14:30\r\nprose\r\n',
+  );
+  assert.deepEqual(await vault.readHotTasks(), [
+    { text: 'Call Oleg', done: null },
+    { text: 'Send invoice', done: '2026-09-21 14:30' },
+  ]);
+  const notes = await vault.listNotes();
+  assert.ok(!notes.some((n) => n.relPath.startsWith('_hot/')));
+  assert.ok(!(await vault.listProjects()).includes('_hot'));
+});
+
+test('hot tasks: writes open first, then done newest first', async () => {
+  await vault.writeHotTasks([
+    { text: 'older', done: '2026-09-20 10:00' },
+    { text: 'open', done: null },
+    { text: 'newer', done: '2026-09-21 09:00' },
+  ]);
+  const saved = await fs.readFile(path.join(root, '_hot', 'tasks.md'), 'utf8');
+  assert.equal(
+    saved,
+    '# Hot tasks\n\n- [ ] open\n- [x] newer ✓ 2026-09-21 09:00\n- [x] older ✓ 2026-09-20 10:00\n',
+  );
+});
+
 test('rejects paths and titles that escape the vault', async () => {
   assert.throws(() => vault.resolve('../outside.md'), VaultError);
   assert.throws(() => vault.assertValidTitle('../evil'), VaultError);

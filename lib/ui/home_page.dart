@@ -13,6 +13,7 @@ import 'editor_pane.dart';
 import 'external_file_view.dart';
 import 'graph_view.dart';
 import 'calculator_dialog.dart';
+import 'hot_tasks_view.dart';
 import 'lock_screen.dart';
 import 'note_list.dart';
 import 'open_tabs.dart';
@@ -66,6 +67,19 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   bool _showList = true;
   bool _showDashboard = false;
+  bool _showHot = false;
+
+  /// Back to the editor from any full-screen view. On a phone the graph is a
+  /// full-screen view too; on desktop it is a side panel and stays as it was.
+  void _showNotes() {
+    final phone = MediaQuery.sizeOf(context).width < kMobileBreakpoint;
+    setState(() {
+      _showHot = false;
+      _showDashboard = false;
+      if (phone) _showGraph = false;
+    });
+  }
+
   bool _showGraph = false;
   // Graph pane width as a fraction of the editor+graph area (18%–72%).
   double _graphFraction = 0.32;
@@ -104,7 +118,9 @@ class _HomePageState extends State<HomePage> {
               _rail(context),
               const SizedBox(width: kShellGap),
               Expanded(
-                child: _showDashboard
+                child: _showHot
+                    ? HotTasksView(card: (child) => ShellCard(child: child))
+                    : _showDashboard
                     ? ShellCard(
                         child: DashboardView(
                           onOpenNote: () =>
@@ -120,8 +136,10 @@ class _HomePageState extends State<HomePage> {
                               child: ShellCard(
                                 child: NoteList(
                                   onNew: () => _newNote(context),
-                                  onNewInProject: (project) =>
-                                      _newNote(context, initialProject: project),
+                                  onNewInProject: (project) => _newNote(
+                                    context,
+                                    initialProject: project,
+                                  ),
                                 ),
                               ),
                             ),
@@ -180,6 +198,28 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               const SizedBox(height: 12),
+              // Hot tasks sit first and larger than the other rail items.
+              HotBadge(
+                count: context.watch<VaultController>().hotInProgressCount,
+                child: IconButton(
+                  key: const Key('rail-hot'),
+                  tooltip: 'Hot tasks',
+                  isSelected: _showHot,
+                  style: IconButton.styleFrom(
+                    minimumSize: const Size(48, 48),
+                    backgroundColor: _showHot
+                        ? kHotColor.withValues(alpha: 0.18)
+                        : null,
+                  ),
+                  icon: const Icon(
+                    Icons.local_fire_department,
+                    size: 30,
+                    color: kHotColor,
+                  ),
+                  onPressed: () => setState(() => _showHot = true),
+                ),
+              ),
+              const SizedBox(height: 8),
               // Scrollable so a short window height clips gracefully instead
               // of overflowing — the bottom icons stay pinned via Expanded.
               Expanded(
@@ -189,20 +229,27 @@ class _HomePageState extends State<HomePage> {
                       item(
                         Icons.description_outlined,
                         'Notes',
-                        !_showDashboard,
-                        () => setState(() => _showDashboard = false),
+                        !_showDashboard && !_showHot,
+                        _showNotes,
                       ),
                       item(
                         Icons.dashboard_outlined,
                         'Dashboard',
-                        _showDashboard,
-                        () => setState(() => _showDashboard = true),
+                        _showDashboard && !_showHot,
+                        () => setState(() {
+                          _showDashboard = true;
+                          _showHot = false;
+                        }),
                       ),
                       item(
                         Icons.view_sidebar_outlined,
                         _showList ? 'Hide notes list' : 'Show notes list',
                         _showList,
-                        () => setState(() => _showList = !_showList),
+                        () => setState(() {
+                          _showList = !_showList;
+                          _showHot = false;
+                          _showDashboard = false;
+                        }),
                       ),
                       item(
                         Icons.bolt,
@@ -214,7 +261,14 @@ class _HomePageState extends State<HomePage> {
                         Icons.hub_outlined,
                         _showGraph ? 'Hide graph' : 'Show graph',
                         _showGraph,
-                        () => setState(() => _showGraph = !_showGraph),
+                        () => setState(() {
+                          _showGraph = !_showGraph;
+                          // The graph is a panel beside the editor.
+                          if (_showGraph) {
+                            _showHot = false;
+                            _showDashboard = false;
+                          }
+                        }),
                       ),
                       item(
                         Icons.refresh,
@@ -271,7 +325,9 @@ class _HomePageState extends State<HomePage> {
     final note = controller.current;
 
     String title;
-    if (_showDashboard) {
+    if (_showHot) {
+      title = 'Hot tasks';
+    } else if (_showDashboard) {
       title = 'Dashboard';
     } else if (_showGraph) {
       title = 'Graph';
@@ -282,7 +338,9 @@ class _HomePageState extends State<HomePage> {
     }
 
     Widget body;
-    if (_showDashboard) {
+    if (_showHot) {
+      body = const Padding(padding: EdgeInsets.all(8), child: HotTasksView());
+    } else if (_showDashboard) {
       body = DashboardView(
         onOpenNote: () => setState(() => _showDashboard = false),
       );
@@ -307,12 +365,7 @@ class _HomePageState extends State<HomePage> {
             tooltip: 'Menu',
             onSelected: (v) => switch (v) {
               'new' => _newNote(context).then((_) {
-                if (mounted) {
-                  setState(() {
-                    _showDashboard = false;
-                    _showGraph = false;
-                  });
-                }
+                if (mounted) _showNotes();
               }),
               'refresh' => _refresh(context),
               'open_file' => _openExternalFile(context),
@@ -429,31 +482,56 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
             ),
+            ListTile(
+              key: const Key('drawer-hot'),
+              leading: HotBadge(
+                count: context.watch<VaultController>().hotInProgressCount,
+                child: const Icon(
+                  Icons.local_fire_department,
+                  color: kHotColor,
+                  size: 28,
+                ),
+              ),
+              title: Text(
+                'Hot tasks',
+                style: TextStyle(
+                  fontWeight: _showHot ? FontWeight.w700 : FontWeight.w600,
+                ),
+              ),
+              selected: _showHot,
+              onTap: () {
+                Navigator.pop(context);
+                setState(() {
+                  _showHot = true;
+                  _showDashboard = false;
+                  _showGraph = false;
+                });
+              },
+            ),
             navItem(
               Icons.description_outlined,
               'Notes',
-              !_showDashboard && !_showGraph,
-              () => setState(() {
-                _showDashboard = false;
-                _showGraph = false;
-              }),
+              !_showHot && !_showDashboard && !_showGraph,
+              _showNotes,
             ),
             navItem(
               Icons.dashboard_outlined,
               'Dashboard',
-              _showDashboard,
+              _showDashboard && !_showHot,
               () => setState(() {
                 _showDashboard = true;
                 _showGraph = false;
+                _showHot = false;
               }),
             ),
             navItem(
               Icons.hub_outlined,
               'Graph',
-              _showGraph,
+              _showGraph && !_showHot,
               () => setState(() {
                 _showGraph = true;
                 _showDashboard = false;
+                _showHot = false;
               }),
             ),
             navItem(
@@ -470,10 +548,7 @@ class _HomePageState extends State<HomePage> {
                     _newNote(context, initialProject: project),
                 onNoteOpened: () {
                   Navigator.pop(context);
-                  setState(() {
-                    _showDashboard = false;
-                    _showGraph = false;
-                  });
+                  _showNotes();
                 },
               ),
             ),
@@ -515,6 +590,7 @@ class _HomePageState extends State<HomePage> {
                       if (matches.isNotEmpty) {
                         controller.select(matches.first);
                         Navigator.pop(context);
+                        _showNotes();
                       }
                     },
                   ),
@@ -527,6 +603,7 @@ class _HomePageState extends State<HomePage> {
                       onTap: () {
                         controller.select(n);
                         Navigator.pop(context);
+                        _showNotes();
                       },
                     ),
                 ],
@@ -654,13 +731,16 @@ class _HomePageState extends State<HomePage> {
     await controller.openVault(dir);
     final error = controller.openError;
     if (error != null && context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error), duration: const Duration(seconds: 6)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error), duration: const Duration(seconds: 6)),
+      );
     }
   }
 
-  Future<void> _newNote(BuildContext context, {String initialProject = ''}) async {
+  Future<void> _newNote(
+    BuildContext context, {
+    String initialProject = '',
+  }) async {
     final controller = context.read<VaultController>();
     final templates = await controller.loadTemplates();
     if (!context.mounted) return;

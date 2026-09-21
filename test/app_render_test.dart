@@ -15,50 +15,57 @@ import 'package:provider/provider.dart';
 /// Real file I/O must run via [WidgetTester.runAsync] because the default
 /// testWidgets zone uses fake async and never completes real I/O futures.
 void main() {
-  testWidgets('renders list, editor and graph from a real vault',
-      (tester) async {
-    late final Directory dir;
-    late final VaultController controller;
+  testWidgets(
+    'renders list, editor and graph from a real vault',
+    (tester) async {
+      late final Directory dir;
+      late final VaultController controller;
 
-    await tester.runAsync(() async {
-      dir = await Directory.systemTemp.createTemp('blobnot_test');
-      AppSettings.overrideFile = File('${dir.path}/app_settings.json');
-      File('${dir.path}/Alpha.md')
-          .writeAsStringSync('# Alpha\n\nLinks to [[Beta]].');
-      File('${dir.path}/Beta.md').writeAsStringSync('# Beta\n\nPlain note.');
-      controller = VaultController();
-      await controller.openVault(dir.path);
-    });
+      await tester.runAsync(() async {
+        dir = await Directory.systemTemp.createTemp('blobnot_test');
+        AppSettings.overrideFile = File('${dir.path}/app_settings.json');
+        File(
+          '${dir.path}/Alpha.md',
+        ).writeAsStringSync('# Alpha\n\nLinks to [[Beta]].');
+        File('${dir.path}/Beta.md').writeAsStringSync('# Beta\n\nPlain note.');
+        controller = VaultController();
+        await controller.openVault(dir.path);
+      });
 
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider.value(value: controller),
-          ChangeNotifierProvider(create: (_) => ExternalFilesController()),
-        ],
-        child: const MaterialApp(home: HomePage()),
-      ),
-    );
-    await tester.pump();
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: controller),
+            ChangeNotifierProvider(create: (_) => ExternalFilesController()),
+          ],
+          child: const MaterialApp(home: HomePage()),
+        ),
+      );
+      await tester.pump();
 
-    // Note list shows both notes.
-    expect(find.text('Alpha'), findsWidgets);
-    expect(find.text('Beta'), findsWidgets);
+      // Note list shows both notes.
+      expect(find.text('Alpha'), findsWidgets);
+      expect(find.text('Beta'), findsWidgets);
 
-    // Editor header shows a word count for the selected (first) note.
-    expect(find.textContaining('words'), findsOneWidget);
+      // Editor header shows a word count for the selected (first) note.
+      expect(find.textContaining('words'), findsOneWidget);
 
-    // Graph is hidden by default — show it, then it reflects 2 nodes and
-    // 1 edge (Alpha -> Beta).
-    expect(find.text('Graph  2 · 1'), findsNothing);
-    await tester.tap(find.byTooltip('Show graph'));
-    await tester.pump();
-    expect(find.text('Graph  2 · 1'), findsOneWidget);
+      // Graph is hidden by default — show it, then it reflects 2 nodes and
+      // 1 edge (Alpha -> Beta).
+      expect(find.text('Graph  2 · 1'), findsNothing);
+      // The rail scrolls on a short window; bring the toggle into view first.
+      await tester.ensureVisible(find.byTooltip('Show graph'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Show graph'));
+      await tester.pump();
+      expect(find.text('Graph  2 · 1'), findsOneWidget);
 
-    // Dispose the widget tree (stops the graph ticker) before the controller.
-    await tester.pumpWidget(const SizedBox());
-    controller.dispose();
-    AppSettings.overrideFile = null;
-    await tester.runAsync(() => dir.delete(recursive: true));
-  }, timeout: const Timeout(Duration(seconds: 60)));
+      // Dispose the widget tree (stops the graph ticker) before the controller.
+      await tester.pumpWidget(const SizedBox());
+      controller.dispose();
+      AppSettings.overrideFile = null;
+      await tester.runAsync(() => dir.delete(recursive: true));
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
 }

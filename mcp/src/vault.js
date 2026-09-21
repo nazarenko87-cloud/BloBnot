@@ -11,7 +11,7 @@ import path from 'node:path';
  */
 
 /** Folders the app hides from the note list — mirrors VaultStorage._reservedDirs. */
-const RESERVED_DIRS = new Set(['_archive', '_templates', 'attachments', '.history']);
+const RESERVED_DIRS = new Set(['_archive', '_templates', '_hot', 'attachments', '.history']);
 
 const LINK_RE = /\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g;
 const TAG_RE = /(?:^|\s)#([\wЀ-ӿ-]+)/g;
@@ -224,6 +224,66 @@ export class Vault {
   async writePinned(titles) {
     await writeJson(path.join(this.root, 'pinned.json'), [...new Set(titles)].sort());
   }
+
+  // --- hot tasks: `_hot/tasks.md`, the same checklist the app reads ---
+
+  /** `[{text, done}]`, `done` a `YYYY-MM-DD HH:MM` stamp or null. */
+  async readHotTasks() {
+    let source = '';
+    try {
+      source = await fs.readFile(path.join(this.root, ...HOT_TASKS), 'utf8');
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    const tasks = [];
+    for (const raw of source.split('\n')) {
+      const m = HOT_LINE.exec(raw.trimEnd());
+      if (!m) continue;
+      let text = m[2];
+      let done = null;
+      if (m[1].toLowerCase() === 'x') {
+        const s = HOT_STAMP.exec(text);
+        if (s) text = text.slice(0, s.index);
+        done = s ? s[1].replace('T', ' ') : hotStamp(new Date());
+      }
+      text = cleanHotText(text);
+      if (text) tasks.push({ text, done });
+    }
+    return tasks;
+  }
+
+  /** In-progress first in their order, then done newest first — as the app writes it. */
+  async writeHotTasks(tasks) {
+    const open = tasks.filter((t) => !t.done);
+    const done = tasks.filter((t) => t.done).sort((a, b) => b.done.localeCompare(a.done));
+    const lines = [
+      '# Hot tasks',
+      '',
+      ...open.map((t) => `- [ ] ${t.text}`),
+      ...done.map((t) => `- [x] ${t.text} ✓ ${t.done}`),
+      '',
+    ];
+    const file = path.join(this.root, ...HOT_TASKS);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, lines.join('\n'), 'utf8');
+  }
+}
+
+const HOT_TASKS = ['_hot', 'tasks.md'];
+const HOT_LINE = /^\s*[-*] \[( |x|X)\]\s?(.*)$/;
+const HOT_STAMP = /\s*✓\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?)\s*$/;
+
+export function cleanHotText(text) {
+  return String(text).replace(/\s+/g, ' ').trim();
+}
+
+/** Local time, minute precision — the stamp format the app writes. */
+export function hotStamp(date) {
+  const two = (n) => String(n).padStart(2, '0');
+  return (
+    `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())} ` +
+    `${two(date.getHours())}:${two(date.getMinutes())}`
+  );
 }
 
 async function exists(file) {

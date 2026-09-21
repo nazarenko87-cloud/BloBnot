@@ -112,6 +112,9 @@ Color onAccent(Color accent) =>
 /// read as green regardless of the chosen accent (matches the v2.0 look).
 const Color kTagGreen = Color(0xFF6E9E52);
 
+/// The flame of the Hot tasks view — same warm orange as the Sand accent.
+const Color kHotColor = Color(0xFFE07A3F);
+
 /// Rounded-card shell metrics shared across the redesigned surfaces.
 const double kCardRadius = 18;
 const double kShellGap = 12;

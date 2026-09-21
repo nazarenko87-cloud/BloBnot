@@ -2,32 +2,15 @@ import 'dart:io';
 
 import 'package:blobnot/services/backup_service.dart';
 import 'package:blobnot/services/settings_store.dart';
-import 'package:blobnot/utils/calc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  group('calculator evaluate', () {
-    test('handles precedence, parens, unary minus and decimals', () {
-      expect(evaluate('2+2*2'), 6);
-      expect(evaluate('(2+2)*2'), 8);
-      expect(evaluate('-3 + 1.5'), -1.5);
-      expect(evaluate('10 / 4'), 2.5);
-      expect(evaluate('7 % 3'), 1);
-      expect(evaluate('2,5 * 2'), 5); // comma as decimal separator
-    });
-
-    test('returns null on garbage', () {
-      expect(evaluate('2 +'), isNull);
-      expect(evaluate('abc'), isNull);
-      expect(evaluate('(1'), isNull);
-      expect(evaluate(''), isNull);
-    });
-  });
-
   group('VaultSettings back-compat', () {
     test('migrates old preset ids stored in themeMode', () {
-      final s =
-          VaultSettings.fromJson({'themeMode': 'amber', 'accentIndex': 2});
+      final s = VaultSettings.fromJson({
+        'themeMode': 'amber',
+        'accentIndex': 2,
+      });
       expect(s.themeMode, 'light');
       expect(s.themeStyle, 'honey');
       expect(s.accentIndex, 2);

@@ -44,9 +44,21 @@ class _EditorPaneState extends State<EditorPane> {
   String _previewBody = '';
   Timer? _previewTimer;
   bool _dropActive = false;
+  StreamSubscription<String>? _inserts;
+
+  @override
+  void initState() {
+    super.initState();
+    _inserts = context.read<VaultController>().insertRequests.listen((text) {
+      if (!mounted) return;
+      _insertAtCursor(text);
+      _commitText();
+    });
+  }
 
   @override
   void dispose() {
+    _inserts?.cancel();
     _previewTimer?.cancel();
     _textController.dispose();
     _scroll.dispose();
@@ -1001,10 +1013,8 @@ class _ImageViewerDialog extends StatelessWidget {
             child: InteractiveViewer(
               child: Image.file(
                 file,
-                errorBuilder: (context, error, stack) => Text(
-                  alt,
-                  style: const TextStyle(color: Colors.white),
-                ),
+                errorBuilder: (context, error, stack) =>
+                    Text(alt, style: const TextStyle(color: Colors.white)),
               ),
             ),
           ),

@@ -98,6 +98,7 @@ class VaultStorage implements VaultBackend {
   static const _reservedDirs = {
     '_archive',
     '_templates',
+    '_hot',
     'attachments',
     '.history',
   };
@@ -201,5 +202,21 @@ class VaultStorage implements VaultBackend {
       i++;
     }
     await File(note.path).rename(dest);
+  }
+
+  File _fileAt(String relPath) =>
+      File(p.joinAll([root, ...relPath.split('/')]));
+
+  @override
+  Future<String> readText(String relPath) async {
+    final f = _fileAt(relPath);
+    return await f.exists() ? f.readAsString() : '';
+  }
+
+  @override
+  Future<void> writeText(String relPath, String content) async {
+    final f = _fileAt(relPath);
+    await f.parent.create(recursive: true);
+    await f.writeAsString(content);
   }
 }

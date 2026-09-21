@@ -151,7 +151,9 @@ class SafVaultStorage implements VaultBackend {
   Future<List<Note>> loadArchived() async {
     final entries = await SafChannel.listFolder(treeUri, _archive);
     final notes = await _readAll(
-      entries.map((e) => {...e, 'relPath': '$_archive/${e['relPath']}'}).toList(),
+      entries
+          .map((e) => {...e, 'relPath': '$_archive/${e['relPath']}'})
+          .toList(),
     );
     notes.sort((a, b) => a.titleLower.compareTo(b.titleLower));
     return notes;
@@ -168,9 +170,10 @@ class SafVaultStorage implements VaultBackend {
 
   /// A `<title>.md` name in [relDir] that doesn't collide, appending ` (n)`.
   Future<String> _uniqueName(String relDir, String title) async {
-    final existing = (await SafChannel.listFolder(treeUri, relDir))
-        .map((e) => (e['relPath'] as String).toLowerCase())
-        .toSet();
+    final existing = (await SafChannel.listFolder(
+      treeUri,
+      relDir,
+    )).map((e) => (e['relPath'] as String).toLowerCase()).toSet();
     var name = '$title.md';
     var i = 1;
     while (existing.contains(name.toLowerCase())) {
@@ -179,4 +182,12 @@ class SafVaultStorage implements VaultBackend {
     }
     return name;
   }
+
+  @override
+  Future<String> readText(String relPath) =>
+      SafChannel.readFile(treeUri, relPath);
+
+  @override
+  Future<void> writeText(String relPath, String content) =>
+      SafChannel.writeFile(treeUri, relPath, content);
 }

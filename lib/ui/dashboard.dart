@@ -30,29 +30,54 @@ class DashboardView extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        Row(
-          children: [
-            _Stat(
-              label: 'Notes',
-              value: '${notes.length}',
-              icon: Icons.description_outlined,
-              tint: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(width: 16),
-            _Stat(
-              label: 'Projects',
-              value: '${controller.projects.length}',
-              icon: Icons.folder_outlined,
-              tint: kTagGreen,
-            ),
-            const SizedBox(width: 16),
-            _Stat(
-              label: 'Reminders',
-              value: '$reminderCount',
-              icon: Icons.notifications_none,
-              tint: const Color(0xFFB98B4E),
-            ),
-          ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final stats = [
+              _Stat(
+                label: 'Notes',
+                value: '${notes.length}',
+                icon: Icons.description_outlined,
+                tint: Theme.of(context).colorScheme.primary,
+              ),
+              _Stat(
+                label: 'Projects',
+                value: '${controller.projects.length}',
+                icon: Icons.folder_outlined,
+                tint: kTagGreen,
+              ),
+              _Stat(
+                label: 'Reminders',
+                value: '$reminderCount',
+                icon: Icons.notifications_none,
+                tint: const Color(0xFFB98B4E),
+              ),
+              _Stat(
+                label: 'Hot tasks',
+                value: '${controller.hotInProgressCount}',
+                icon: Icons.local_fire_department,
+                tint: kHotColor,
+              ),
+            ];
+            Widget row(List<Widget> items) => Row(
+              children: [
+                for (var i = 0; i < items.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 16),
+                  items[i],
+                ],
+              ],
+            );
+            // Four cards do not fit side by side on a phone.
+            if (constraints.maxWidth < 620) {
+              return Column(
+                children: [
+                  row(stats.sublist(0, 2)),
+                  const SizedBox(height: 16),
+                  row(stats.sublist(2)),
+                ],
+              );
+            }
+            return row(stats);
+          },
         ),
         const SizedBox(height: 24),
         _CalendarCard(controller: controller, onOpenNote: onOpenNote),
@@ -235,8 +260,18 @@ class _Marker {
 DateTime _dayOf(DateTime t) => DateTime(t.year, t.month, t.day);
 
 const _monthNames = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 const _weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -280,13 +315,23 @@ class _CalendarCardState extends State<_CalendarCard> {
     for (final note in controller.notes) {
       for (final when in LineReminders.parseAll(note.body)) {
         markers.add(
-          _Marker(when: when, title: note.title, kind: _MarkerKind.line, note: note),
+          _Marker(
+            when: when,
+            title: note.title,
+            kind: _MarkerKind.line,
+            note: note,
+          ),
         );
       }
     }
     for (final ev in controller.events) {
       markers.add(
-        _Marker(when: ev.when, title: ev.title, kind: _MarkerKind.event, eventId: ev.id),
+        _Marker(
+          when: ev.when,
+          title: ev.title,
+          kind: _MarkerKind.event,
+          eventId: ev.id,
+        ),
       );
     }
     return markers;
@@ -327,7 +372,10 @@ class _CalendarCardState extends State<_CalendarCard> {
               ),
               Text(
                 '${_monthNames[_month.month - 1]} ${_month.year}',
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
               ),
               IconButton(
                 icon: const Icon(Icons.chevron_right, size: 20),
@@ -476,21 +524,36 @@ class _DayDialog extends StatelessWidget {
         }
       }
       markers.add(
-        _Marker(when: entry.value, title: entry.key, kind: _MarkerKind.note, note: note),
+        _Marker(
+          when: entry.value,
+          title: entry.key,
+          kind: _MarkerKind.note,
+          note: note,
+        ),
       );
     }
     for (final note in live.notes) {
       for (final when in LineReminders.parseAll(note.body)) {
         if (_dayOf(when) != day) continue;
         markers.add(
-          _Marker(when: when, title: note.title, kind: _MarkerKind.line, note: note),
+          _Marker(
+            when: when,
+            title: note.title,
+            kind: _MarkerKind.line,
+            note: note,
+          ),
         );
       }
     }
     for (final ev in live.events) {
       if (_dayOf(ev.when) != day) continue;
       markers.add(
-        _Marker(when: ev.when, title: ev.title, kind: _MarkerKind.event, eventId: ev.id),
+        _Marker(
+          when: ev.when,
+          title: ev.title,
+          kind: _MarkerKind.event,
+          eventId: ev.id,
+        ),
       );
     }
     markers.sort((a, b) => a.when.compareTo(b.when));
@@ -511,7 +574,11 @@ class _DayDialog extends StatelessWidget {
               ListTile(
                 dense: true,
                 leading: Icon(m.icon, size: 18, color: m.color(context)),
-                title: Text(m.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                title: Text(
+                  m.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 subtitle: Text('${_two(m.when.hour)}:${_two(m.when.minute)}'),
                 trailing: m.kind == _MarkerKind.event
                     ? IconButton(
@@ -547,7 +614,10 @@ class _DayDialog extends StatelessWidget {
     );
   }
 
-  Future<void> _addEvent(BuildContext context, VaultController controller) async {
+  Future<void> _addEvent(
+    BuildContext context,
+    VaultController controller,
+  ) async {
     final ctrl = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,

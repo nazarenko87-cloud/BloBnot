@@ -117,7 +117,7 @@ class MainActivity : FlutterActivity() {
         DocumentFile.fromTreeUri(this, Uri.parse(tree))
 
     /** Reserved folders that are not shown as notes/projects. */
-    private val reserved = setOf("_archive", "_templates", "attachments", ".history")
+    private val reserved = setOf("_archive", "_templates", "_hot", "attachments", ".history")
 
     private fun listMarkdown(tree: String): List<Map<String, Any>> {
         val out = mutableListOf<Map<String, Any>>()

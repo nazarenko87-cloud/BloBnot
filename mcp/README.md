@@ -88,6 +88,9 @@ vault path and what it found there.
 | `list_projects` | Project folders with note counts |
 | `list_reminders` | Note reminders, calendar events and `{{remind:}}` tags |
 | `add_reminder` | Reminder on a note, inline in its text, or standalone |
+| `list_hot_tasks` | Hot tasks in progress, and done ones with when |
+| `add_hot_task` | Add a one-line to-do to the top of Hot tasks |
+| `complete_hot_task` | Mark a hot task done by its text (or a unique part of it) |
 
 ## Working alongside the app
 
@@ -104,7 +107,8 @@ adds a ` (n)` suffix rather than overwriting, unless you explicitly ask it to ov
 Everything matches what the Flutter app expects:
 
 - Notes — `.md` files; the file name is the title. Sub-folders are projects.
-- `_archive/`, `_templates/`, `attachments/`, `.history/` — reserved, skipped in listings
+- `_archive/`, `_templates/`, `_hot/`, `attachments/`, `.history/` — reserved, skipped in listings
+- `_hot/tasks.md` — hot tasks: `- [ ] task` and `- [x] task ✓ 2026-09-21 14:30`
 - `reminders.json` — `{"Note title": "2026-09-20T15:00"}`
 - `calendar_events.json` — `[{"id": "...", "title": "...", "when": "..."}]`
 - `pinned.json` — `["Note title", ...]`

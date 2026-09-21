@@ -19,7 +19,14 @@ lives outside the app folder, so it survives updates.
 - **Projects** — folders as projects: rename, delete, and drag to reorder.
 - **Tag glyphs** — map a `#tag` or a note to an icon, shown as a medallion in the list,
   graph and dashboard.
+- **Hot tasks** — the flame at the top of the rail: a quick list of running to-dos with
+  *In progress* and *Done* columns. Tap a task to strike it through and stamp the time;
+  tap a done one to bring it back. Done tasks move to an archive after 30 days. Stored as
+  a plain checklist in `_hot/tasks.md`, so it syncs with the vault like any note.
 - **Dashboard** — card overview with stats, an activity heatmap and an interactive calendar.
+- **Calculator** — the classic keypad (memory, %, x², √, 1/x) plus offline converters for
+  length, weight, temperature, area, volume, speed, time and data. *Insert into note* puts
+  the result at the cursor.
 - **Reminders** — per-note, inline `{{remind:}}` tags, and standalone calendar events.
 - **Attachments** — files live in `attachments/` next to your notes.
 - **Themes** — dark and light, four colour styles plus a monochrome "Newsprint" Lite theme.

@@ -33,6 +33,12 @@ abstract interface class VaultBackend {
   Future<void> archive(Note note);
   Future<List<Note>> loadArchived();
   Future<void> restore(Note note);
+
+  /// A vault file by '/'-separated relative path; '' when it does not exist.
+  Future<String> readText(String relPath);
+
+  /// Write a vault file, creating parent folders as needed.
+  Future<void> writeText(String relPath, String content);
 }
 
 /// True when [id] points at an Android SAF tree rather than a local path.
