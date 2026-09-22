@@ -67,6 +67,33 @@ void main() {
       expect(serializeHotTasks(again), text);
     });
 
+    test('round-trips the added stamp, and lines without one still parse', () {
+      final t = HotTask(
+        id: 0,
+        text: 'call',
+        created: DateTime(2026, 9, 22, 9, 15),
+        done: DateTime(2026, 9, 22, 14, 30),
+      );
+      expect(
+        hotTaskLine(t),
+        '- [x] call + 2026-09-22 09:15 ✓ 2026-09-22 14:30',
+      );
+      final back = parseHotTasks(hotTaskLine(t), now: now).single;
+      expect(back.created, t.created);
+      expect(back.done, t.done);
+      expect(back.text, 'call');
+
+      final old = parseHotTasks('- [ ] no stamps\n', now: now).single;
+      expect(old.created, isNull);
+      expect(hotTaskLine(old), '- [ ] no stamps');
+    });
+
+    test('a + inside the text is not mistaken for a stamp', () {
+      final t = parseHotTasks('- [ ] buy 2 + 2 adapters\n', now: now).single;
+      expect(t.text, 'buy 2 + 2 adapters');
+      expect(t.created, isNull);
+    });
+
     test('cleans text to a single line', () {
       expect(cleanHotText('  two\nlines\t here '), 'two lines here');
     });
@@ -197,7 +224,12 @@ void main() {
       expect(controller.hotInProgress.single.text, 'Order profile');
       expect(controller.hotDone.single.text, 'Call Oleg');
       expect(controller.lastCompletedHotId, call.id);
-      expect(hotFile().readAsStringSync(), contains('- [x] Call Oleg ✓ '));
+      // The line carries both stamps: when it was added and when it was done.
+      expect(
+        hotFile().readAsStringSync(),
+        matches(RegExp(r'- \[x\] Call Oleg \+ [\d-]+ [\d:]+ ✓ [\d-]+ [\d:]+')),
+      );
+      expect(controller.hotDone.single.created, isNotNull);
 
       await controller.reopenHotTask(call.id);
       expect(controller.hotInProgress.first.text, 'Call Oleg');
@@ -205,6 +237,39 @@ void main() {
 
       await controller.deleteHotTask(call.id);
       expect(hotFile().readAsStringSync(), isNot(contains('Call Oleg')));
+    });
+
+    test('a new task is stamped with when it was added', () async {
+      await controller.openVault(tmp.path);
+      final before = DateTime.now().subtract(const Duration(minutes: 1));
+      await controller.addHotTask('Call Oleg');
+      final created = controller.hotInProgress.single.created;
+      expect(created, isNotNull);
+      expect(created!.isAfter(before), isTrue);
+      expect(hotFile().readAsStringSync(), contains('- [ ] Call Oleg + '));
+    });
+
+    test('editing changes the text and keeps the stamps', () async {
+      await controller.openVault(tmp.path);
+      await controller.addHotTask('Call Olge');
+      final task = controller.hotInProgress.single;
+      await controller.editHotTask(task.id, '  Call Oleg\nabout the office ');
+      final edited = controller.hotInProgress.single;
+      expect(edited.text, 'Call Oleg about the office');
+      expect(edited.created, task.created);
+      expect(edited.id, task.id);
+      expect(
+        hotFile().readAsStringSync(),
+        contains('Call Oleg about the office'),
+      );
+
+      // Empty text and unknown ids change nothing.
+      await controller.editHotTask(task.id, '   ');
+      await controller.editHotTask(-1, 'ghost');
+      expect(
+        controller.hotInProgress.single.text,
+        'Call Oleg about the office',
+      );
     });
 
     test('blank input adds nothing', () async {

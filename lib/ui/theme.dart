@@ -23,6 +23,8 @@ class ThemeStyle {
     required this.lightScaffold,
     required this.lightSurface,
     this.flat = false,
+    this.compact = false,
+    this.fixedAccent,
   });
 
   final String id;
@@ -36,6 +38,14 @@ class ThemeStyle {
   /// blur) instead of the floating v2.0 shell look — cheaper to paint and
   /// visually the plainest option (used by the "Lite" style).
   final bool flat;
+
+  /// Desktop-suite look ("Lite 2"): small icons, tight radius, hairline
+  /// borders and hardly any animation, with a fixed accent instead of the
+  /// chosen one.
+  final bool compact;
+
+  /// Accent this style always uses, ignoring the accent picker.
+  final Color? fixedAccent;
 }
 
 const List<ThemeStyle> kThemeStyles = [
@@ -93,7 +103,23 @@ const List<ThemeStyle> kThemeStyles = [
     lightSurface: Color(0xFFF8F8F7),
     flat: true,
   ),
+  // "Lite 2": the calm grey-and-orange of a Ubuntu desktop window. Keeps
+  // colour (unlike Lite) but shrinks every control except the Hot tasks
+  // flame, squares off the cards and drops the decorative motion.
+  ThemeStyle(
+    id: 'lite2',
+    label: 'Lite 2',
+    darkScaffold: Color(0xFF1D1B1A),
+    darkSurface: Color(0xFF282626),
+    lightScaffold: Color(0xFFF2F0EF),
+    lightSurface: Color(0xFFFAFAFA),
+    compact: true,
+    fixedAccent: kUbuntuOrange,
+  ),
 ];
+
+/// Ubuntu's signature orange, the accent of the "Lite 2" style.
+const Color kUbuntuOrange = Color(0xFFE95420);
 
 ThemeStyle styleById(String id) => kThemeStyles.firstWhere(
   (s) => s.id == id,
@@ -145,6 +171,7 @@ class ShellStyle extends ThemeExtension<ShellStyle> {
     this.borderColor,
     this.reducedMotion = false,
     this.serifTitles = false,
+    this.compactIcons = false,
   });
 
   final bool flat;
@@ -162,6 +189,13 @@ class ShellStyle extends ThemeExtension<ShellStyle> {
   /// instead of the app's usual sans/mono — a Lite-only touch.
   final bool serifTitles;
 
+  /// Shrinks the rail and toolbar icons ("Lite 2"). The Hot tasks flame
+  /// keeps its size — it is the one control meant to stay prominent.
+  final bool compactIcons;
+
+  /// Size for a rail/toolbar icon under this style.
+  double icon(double normal) => compactIcons ? normal - 4 : normal;
+
   @override
   ShellStyle copyWith({
     bool? flat,
@@ -169,12 +203,14 @@ class ShellStyle extends ThemeExtension<ShellStyle> {
     Color? borderColor,
     bool? reducedMotion,
     bool? serifTitles,
+    bool? compactIcons,
   }) => ShellStyle(
     flat: flat ?? this.flat,
     radius: radius ?? this.radius,
     borderColor: borderColor ?? this.borderColor,
     reducedMotion: reducedMotion ?? this.reducedMotion,
     serifTitles: serifTitles ?? this.serifTitles,
+    compactIcons: compactIcons ?? this.compactIcons,
   );
 
   @override
@@ -211,7 +247,13 @@ ThemeData buildTheme({
   final ink = dark ? const Color(0xFFE9E9E6) : const Color(0xFF171717);
   final accent = style.flat
       ? ink
-      : kAccents[accentIndex.clamp(0, kAccents.length - 1)];
+      : style.fixedAccent ??
+            kAccents[accentIndex.clamp(0, kAccents.length - 1)];
+  // Lite 2 borrows Ubuntu's window separator greys rather than Lite's rules.
+  final hairline = style.compact
+      ? (dark ? const Color(0xFF3A3736) : const Color(0xFFD6D2CF))
+      : rule;
+  final plain = style.flat || style.compact;
 
   return base.copyWith(
     scaffoldBackgroundColor: scaffold,
@@ -221,18 +263,34 @@ ThemeData buildTheme({
       surface: surface,
     ),
     appBarTheme: base.appBarTheme.copyWith(backgroundColor: scaffold),
-    dividerColor: style.flat ? rule : (dark ? Colors.white12 : Colors.black12),
+    // Material 3 tints menus and dialogs toward its own seed colour, which
+    // fights every one of these palettes; use the style's own surface.
+    popupMenuTheme: base.popupMenuTheme.copyWith(color: surface),
+    dialogTheme: base.dialogTheme.copyWith(backgroundColor: surface),
+    dividerColor: plain ? hairline : (dark ? Colors.white12 : Colors.black12),
     textSelectionTheme: TextSelectionThemeData(
       cursorColor: accent,
       selectionColor: accent.withValues(alpha: 0.3),
     ),
+    // Lite 2 is meant to feel like a quiet desktop app: no page transitions
+    // beyond a fade, and nothing that slides or bounces.
+    pageTransitionsTheme: style.compact
+        ? const PageTransitionsTheme(
+            builders: {
+              TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
+              TargetPlatform.linux: FadeForwardsPageTransitionsBuilder(),
+              TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+            },
+          )
+        : base.pageTransitionsTheme,
     extensions: [
       ShellStyle(
-        flat: style.flat,
-        radius: style.flat ? 0 : kCardRadius,
-        borderColor: style.flat ? rule : null,
-        reducedMotion: style.flat,
+        flat: plain,
+        radius: style.flat ? 0 : (style.compact ? 6 : kCardRadius),
+        borderColor: plain ? hairline : null,
+        reducedMotion: plain,
         serifTitles: style.flat,
+        compactIcons: style.compact,
       ),
     ],
   );

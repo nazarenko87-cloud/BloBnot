@@ -744,7 +744,21 @@ class VaultController extends ChangeNotifier {
   Future<void> addHotTask(String text) {
     final clean = cleanHotText(text);
     if (clean.isEmpty || _storage == null) return Future.value();
-    _hot = [HotTask(id: _hotSeq++, text: clean), ..._hot];
+    _hot = [
+      HotTask(id: _hotSeq++, text: clean, created: toMinute(DateTime.now())),
+      ..._hot,
+    ];
+    return _hotChanged();
+  }
+
+  /// Rewrite a task's text, keeping its stamps and its place in the list.
+  Future<void> editHotTask(int id, String text) {
+    final clean = cleanHotText(text);
+    final task = _hotById(id);
+    if (clean.isEmpty || task == null || task.text == clean) {
+      return Future.value();
+    }
+    _hot = [for (final t in _hot) t.id == id ? t.withText(clean) : t];
     return _hotChanged();
   }
 

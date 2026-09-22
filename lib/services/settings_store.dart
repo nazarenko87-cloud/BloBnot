@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 /// Per-vault settings persisted to `{vault}/settings.json` so they travel
 /// with the vault (e.g. through Google Drive).
@@ -100,27 +101,36 @@ class SettingsStore {
   }
 }
 
-/// App-local settings kept in `~/.bloknot/settings.json` (do NOT travel with
-/// the vault): last opened vault path.
+/// App-local settings (they do NOT travel with the vault): the last opened
+/// vault. Desktop keeps them in `~/.bloknot/settings.json`; Android and iOS
+/// have no home directory to write to, so they use the app's own support
+/// folder instead.
 class AppSettings {
   /// Test seam: when set, reads/writes go to this file instead of the real
-  /// `~/.bloknot/settings.json`. Tests MUST set this to avoid clobbering the
-  /// user's actual settings.
+  /// settings file. Tests MUST set this to avoid clobbering the user's own.
   static File? overrideFile;
 
-  static File get _file {
-    if (overrideFile != null) return overrideFile!;
-    final home =
-        Platform.environment['USERPROFILE'] ??
-        Platform.environment['HOME'] ??
-        '.';
-    return File(p.join(home, '.bloknot', 'settings.json'));
+  static Future<File> _resolve() async {
+    final override = overrideFile;
+    if (override != null) return override;
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      final home =
+          Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'];
+      if (home != null && home.isNotEmpty) {
+        return File(p.join(home, '.bloknot', 'settings.json'));
+      }
+    }
+    // A mobile app's own storage — writable, unlike '/' which a missing HOME
+    // used to resolve to (that made opening a vault fail outright).
+    final dir = await getApplicationSupportDirectory();
+    return File(p.join(dir.path, 'settings.json'));
   }
 
   static Future<Map<String, dynamic>> _read() async {
     try {
-      if (!await _file.exists()) return {};
-      return jsonDecode(await _file.readAsString()) as Map<String, dynamic>;
+      final file = await _resolve();
+      if (!await file.exists()) return {};
+      return jsonDecode(await file.readAsString()) as Map<String, dynamic>;
     } on FormatException {
       return {};
     } on IOException {
@@ -134,7 +144,8 @@ class AppSettings {
   static Future<void> setLastVault(String path) async {
     final data = await _read();
     data['vault'] = path;
-    await _file.parent.create(recursive: true);
-    await _file.writeAsString(jsonEncode(data));
+    final file = await _resolve();
+    await file.parent.create(recursive: true);
+    await file.writeAsString(jsonEncode(data));
   }
 }

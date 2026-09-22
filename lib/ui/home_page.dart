@@ -158,16 +158,23 @@ class _HomePageState extends State<HomePage> {
 
   Widget _rail(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
+    final shell = Theme.of(context).extension<ShellStyle>();
+    final compact = shell?.compactIcons ?? false;
     Widget item(IconData icon, String tip, bool active, VoidCallback onTap) =>
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
+          padding: EdgeInsets.symmetric(vertical: compact ? 1 : 3),
           child: IconButton(
             tooltip: tip,
             isSelected: active,
             style: IconButton.styleFrom(
               backgroundColor: active ? accent.withValues(alpha: 0.18) : null,
+              minimumSize: compact ? const Size(34, 34) : null,
             ),
-            icon: Icon(icon, size: 22, color: active ? accent : null),
+            icon: Icon(
+              icon,
+              size: shell?.icon(22) ?? 22,
+              color: active ? accent : null,
+            ),
             onPressed: onTap,
           ),
         );

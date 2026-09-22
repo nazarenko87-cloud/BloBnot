@@ -64,10 +64,22 @@ class MainActivity : FlutterActivity() {
         scope.launch {
             val outcome = runCatching { withContext(Dispatchers.IO) { block() } }
             outcome.fold(
-                onSuccess = { result.success(it) },
+                onSuccess = { result.success(encodable(it)) },
                 onFailure = { result.error("saf_error", it.message, null) },
             )
         }
+    }
+
+    /**
+     * The channel codec only knows a fixed set of types. Handing it anything
+     * else — Kotlin's [Unit] from a write, a [DocumentFile] from mkdir —
+     * throws IllegalArgumentException on the main thread and takes the whole
+     * app down, so map those to values it can carry.
+     */
+    private fun encodable(value: Any?): Any? = when (value) {
+        is Unit -> null
+        is DocumentFile -> value.uri.toString()
+        else -> value
     }
 
     override fun onDestroy() {

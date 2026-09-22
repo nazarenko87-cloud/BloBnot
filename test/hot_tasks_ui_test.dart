@@ -6,6 +6,7 @@ import 'package:blobnot/state/external_files_controller.dart';
 import 'package:blobnot/state/vault_controller.dart';
 import 'package:blobnot/ui/home_page.dart';
 import 'package:blobnot/ui/hot_tasks_view.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -100,6 +101,32 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1300));
     expect(controller.hotDone, isEmpty);
     expect(controller.hotInProgress.first.text, 'Call the supplier');
+
+    // Right-click opens the menu; Edit rewrites the task.
+    await tester.tap(
+      find.text('Order profile'),
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Edit task'), findsOneWidget);
+    await tester.tap(find.text('Edit task'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('hot-edit-field')),
+      'Order profile 2 m',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+    final edited = controller.hotInProgress.firstWhere(
+      (t) => t.text == 'Order profile 2 m',
+    );
+    expect(find.text('Order profile 2 m'), findsOneWidget);
+
+    // The time it was added is shown on the task.
+    expect(
+      find.text(hotAddedLabel(edited.created!, DateTime.now())),
+      findsWidgets,
+    );
 
     // Notes on the rail goes back to the editor.
     await tester.tap(find.byTooltip('Notes'));

@@ -185,6 +185,113 @@ Future<void> runHotAction(BuildContext context, Future<void> action) async {
   }
 }
 
+/// Right-click (or long-press on a touch screen) menu for a task:
+/// edit its text, or delete it. [at] is the pointer position; without one
+/// the menu opens over the task itself.
+Future<void> showHotTaskMenu(
+  BuildContext context,
+  HotTask task,
+  Offset? at,
+) async {
+  final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+  final box = context.findRenderObject() as RenderBox?;
+  if (overlay == null || box == null) return;
+  final origin =
+      at ?? box.localToGlobal(box.size.center(Offset.zero), ancestor: overlay);
+  final position = RelativeRect.fromRect(
+    origin & const Size(1, 1),
+    Offset.zero & overlay.size,
+  );
+  final controller = context.read<VaultController>();
+  final choice = await showMenu<String>(
+    context: context,
+    position: position,
+    items: [
+      PopupMenuItem(
+        value: 'edit',
+        child: Row(
+          children: [
+            Icon(Icons.edit_outlined, size: 18, color: kHotColor),
+            const SizedBox(width: 10),
+            const Text('Edit task'),
+          ],
+        ),
+      ),
+      const PopupMenuItem(
+        value: 'delete',
+        child: Row(
+          children: [
+            Icon(Icons.delete_outline, size: 18),
+            SizedBox(width: 10),
+            Text('Delete task'),
+          ],
+        ),
+      ),
+    ],
+  );
+  if (choice == null || !context.mounted) return;
+  if (choice == 'delete') {
+    await runHotAction(context, controller.deleteHotTask(task.id));
+    return;
+  }
+  final edited = await _askForText(context, task.text);
+  if (edited == null || !context.mounted) return;
+  await runHotAction(context, controller.editHotTask(task.id, edited));
+}
+
+Future<String?> _askForText(BuildContext context, String initial) =>
+    showDialog<String>(
+      context: context,
+      builder: (context) => _EditTaskDialog(initial: initial),
+    );
+
+/// Owns its text controller, so it lives until the dialog is really gone —
+/// disposing it when the route's future completes would break the field
+/// while the dialog is still animating out.
+class _EditTaskDialog extends StatefulWidget {
+  const _EditTaskDialog({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_EditTaskDialog> createState() => _EditTaskDialogState();
+}
+
+class _EditTaskDialogState extends State<_EditTaskDialog> {
+  late final _field = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit task'),
+      content: TextField(
+        key: const Key('hot-edit-field'),
+        controller: _field,
+        autofocus: true,
+        maxLength: 200,
+        decoration: const InputDecoration(counterText: ''),
+        onSubmitted: (v) => Navigator.pop(context, v),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _field.text),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
 class _Column extends StatelessWidget {
   const _Column({
     required this.title,
@@ -295,6 +402,7 @@ class _InProgressTileState extends State<_InProgressTile> {
     final muted = scheme.onSurface.withValues(alpha: 0.55);
     final instant = MediaQuery.of(context).disableAnimations;
     final duration = Duration(milliseconds: instant ? 0 : 320);
+    final created = widget.task.created;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
@@ -303,6 +411,9 @@ class _InProgressTileState extends State<_InProgressTile> {
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
           onTap: _complete,
+          onSecondaryTapDown: (d) =>
+              showHotTaskMenu(context, widget.task, d.globalPosition),
+          onLongPress: () => showHotTaskMenu(context, widget.task, null),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 4, 4),
             child: Row(
@@ -345,6 +456,14 @@ class _InProgressTileState extends State<_InProgressTile> {
                     ),
                   ),
                 ),
+                if (created != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8, top: 8),
+                    child: Text(
+                      hotAddedLabel(created, DateTime.now()),
+                      style: TextStyle(fontSize: 11.5, color: muted),
+                    ),
+                  ),
                 // Hover-only on desktop, but a hidden button must not stay
                 // clickable; touch screens have no hover, so show it there.
                 Visibility(
@@ -458,8 +577,13 @@ class _DoneTile extends StatelessWidget {
           context,
           context.read<VaultController>().reopenHotTask(task.id),
         ),
+        onSecondaryTapDown: (d) =>
+            showHotTaskMenu(context, task, d.globalPosition),
+        onLongPress: () => showHotTaskMenu(context, task, null),
         child: Tooltip(
-          message: 'Back to in progress',
+          message: task.created == null
+              ? 'Back to in progress'
+              : 'Added ${formatHotStamp(task.created!)} · back to in progress',
           waitDuration: const Duration(milliseconds: 600),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
@@ -636,6 +760,19 @@ const _months = [
   'Nov',
   'Dec',
 ];
+
+/// When a task was added, short: "09:15" today, "Yesterday 18:40", else
+/// "Sep 18 11:05".
+String hotAddedLabel(DateTime added, DateTime now) {
+  final time =
+      '${added.hour.toString().padLeft(2, '0')}:'
+      '${added.minute.toString().padLeft(2, '0')}';
+  return switch (dayLabel(added, now)) {
+    'Today' => time,
+    'Yesterday' => 'Yesterday $time',
+    _ => '${_months[added.month - 1]} ${added.day} $time',
+  };
+}
 
 /// "Today", "Yesterday", else e.g. "Thu, Sep 18".
 String dayLabel(DateTime d, DateTime now) {

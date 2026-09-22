@@ -5,9 +5,12 @@
 /// ```markdown
 /// # Hot tasks
 ///
-/// - [ ] Call the supplier
-/// - [x] Send the invoice ✓ 2026-09-21 14:30
+/// - [ ] Call the supplier + 2026-09-22 09:15
+/// - [x] Send the invoice + 2026-09-21 11:00 ✓ 2026-09-21 14:30
 /// ```
+///
+/// `+` is when the task was added, `✓` when it was done. Both are optional:
+/// a line written by hand still parses.
 ///
 /// Done tasks older than [kHotArchiveAfter] move to `_hot/archive.md`.
 library;
@@ -18,7 +21,12 @@ const String kHotArchivePath = '$kHotDir/archive.md';
 const Duration kHotArchiveAfter = Duration(days: 30);
 
 class HotTask {
-  const HotTask({required this.id, required this.text, this.done});
+  const HotTask({
+    required this.id,
+    required this.text,
+    this.done,
+    this.created,
+  });
 
   /// Session-local identity; not persisted.
   final int id;
@@ -27,13 +35,24 @@ class HotTask {
   /// When it was completed, or null while in progress.
   final DateTime? done;
 
+  /// When it was added. Null for tasks written before stamps existed, or by
+  /// hand — the UI simply shows no "added" time for those.
+  final DateTime? created;
+
   bool get isDone => done != null;
 
-  HotTask withDone(DateTime? when) => HotTask(id: id, text: text, done: when);
+  HotTask withDone(DateTime? when) =>
+      HotTask(id: id, text: text, done: when, created: created);
+
+  HotTask withText(String newText) =>
+      HotTask(id: id, text: newText, done: done, created: created);
 }
 
 final _taskLine = RegExp(r'^\s*[-*] \[( |x|X)\]\s?(.*)$');
 final _stamp = RegExp(r'\s*✓\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?)\s*$');
+final _createdStamp = RegExp(
+  r'\s*\+\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?)\s*$',
+);
 
 /// Task text as it can be stored: one line, trimmed.
 String cleanHotText(String text) => text.replaceAll(RegExp(r'\s+'), ' ').trim();
@@ -62,9 +81,16 @@ List<HotTask> parseHotTasks(
       }
       done ??= now;
     }
+    // The added-stamp sits before the done-stamp, so it is at the end now.
+    DateTime? created;
+    final c = _createdStamp.firstMatch(text);
+    if (c != null) {
+      created = DateTime.tryParse(c.group(1)!.replaceFirst(' ', 'T'));
+      if (created != null) text = text.substring(0, c.start);
+    }
     text = cleanHotText(text);
     if (text.isEmpty) continue;
-    tasks.add(HotTask(id: ids(), text: text, done: done));
+    tasks.add(HotTask(id: ids(), text: text, done: done, created: created));
   }
   return tasks;
 }
@@ -79,9 +105,16 @@ DateTime toMinute(DateTime d) =>
 String formatHotStamp(DateTime d) =>
     '${d.year}-${_two(d.month)}-${_two(d.day)} ${_two(d.hour)}:${_two(d.minute)}';
 
-String hotTaskLine(HotTask t) => t.done == null
-    ? '- [ ] ${t.text}'
-    : '- [x] ${t.text} ✓ ${formatHotStamp(t.done!)}';
+String hotTaskLine(HotTask t) {
+  final created = t.created;
+  final done = t.done;
+  return [
+    done == null ? '- [ ]' : '- [x]',
+    ' ${t.text}',
+    if (created != null) ' + ${formatHotStamp(created)}',
+    if (done != null) ' ✓ ${formatHotStamp(done)}',
+  ].join();
+}
 
 /// Newest first; ties keep their existing order.
 List<HotTask> sortDone(Iterable<HotTask> done) {
@@ -152,10 +185,12 @@ List<HotTask> mergeExternal({
           for (final m in merged) m.id == open.id ? m.withDone(d.done) : m,
         ];
       } else if (!sameText.any((m) => hotTaskLine(m) == hotTaskLine(d))) {
-        added.add(HotTask(id: nextId(), text: d.text, done: d.done));
+        added.add(
+          HotTask(id: nextId(), text: d.text, done: d.done, created: d.created),
+        );
       }
     } else if (sameText.isEmpty) {
-      added.add(HotTask(id: nextId(), text: d.text));
+      added.add(HotTask(id: nextId(), text: d.text, created: d.created));
     }
   }
   return [...added, ...merged];
@@ -179,5 +214,6 @@ String appendToArchive(String existing, List<HotTask> archived, DateTime now) {
 }
 
 extension on HotTask {
-  HotTask withId(int newId) => HotTask(id: newId, text: text, done: done);
+  HotTask withId(int newId) =>
+      HotTask(id: newId, text: text, done: done, created: created);
 }

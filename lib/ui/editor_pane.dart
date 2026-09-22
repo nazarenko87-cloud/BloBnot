@@ -1347,8 +1347,14 @@ class _Toolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
-    Widget btn(IconData icon, String tip, VoidCallback onTap) =>
-        IconButton(tooltip: tip, icon: Icon(icon, size: 18), onPressed: onTap);
+    final shell = Theme.of(context).extension<ShellStyle>();
+    final small = shell?.icon(18) ?? 18;
+    final big = shell?.icon(22) ?? 22;
+    Widget btn(IconData icon, String tip, VoidCallback onTap) => IconButton(
+      tooltip: tip,
+      icon: Icon(icon, size: small),
+      onPressed: onTap,
+    );
     Widget sep() => Container(
       width: 1,
       height: 22,
@@ -1373,7 +1379,7 @@ class _Toolbar extends StatelessWidget {
               // Group: linking — wiki link is the flagship action.
               IconButton.filledTonal(
                 tooltip: 'Wiki link',
-                icon: Icon(Icons.link, size: 22, color: accent),
+                icon: Icon(Icons.link, size: big, color: accent),
                 onPressed: () {
                   final sel = controller.selection;
                   if (sel.isValid && !sel.isCollapsed) {
@@ -1418,7 +1424,7 @@ class _Toolbar extends StatelessWidget {
               // the toolbar scrolls horizontally, so it can never be clipped.
               IconButton.filledTonal(
                 tooltip: 'Attach file',
-                icon: Icon(Icons.attach_file, size: 22, color: accent),
+                icon: Icon(Icons.attach_file, size: big, color: accent),
                 onPressed: onAttach,
               ),
               const SizedBox(width: 8),
