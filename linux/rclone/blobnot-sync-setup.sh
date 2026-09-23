@@ -51,7 +51,9 @@ load_conf() {
   [ -f "$CONF" ] || die "not set up yet — run: blobnot-sync-setup"
   # shellcheck source=/dev/null
   . "$CONF"
-  [ -n "${REMOTE:-}" ] && [ -n "${LOCAL:-}" ] || die "$CONF is incomplete"
+  if [ -z "${REMOTE:-}" ] || [ -z "${LOCAL:-}" ]; then
+    die "$CONF is incomplete"
+  fi
 }
 
 # ---------- one sync (the timer calls this) ----------
@@ -143,7 +145,9 @@ setup() {
       *) die "unknown option: $1 (see --help)" ;;
     esac
   done
-  [[ "$every" =~ ^[0-9]+$ ]] && [ "$every" -ge 1 ] || die "--every takes whole minutes"
+  if ! [[ "$every" =~ ^[0-9]+$ ]] || [ "$every" -lt 1 ]; then
+    die "--every takes whole minutes"
+  fi
   need_rclone
 
   # A path with "name:" is a configured rclone remote; create it if missing.
@@ -178,7 +182,11 @@ status() {
   load_conf
   echo "Remote: $REMOTE"
   echo "Local:  $LOCAL"
-  [ -f "$MARK" ] && echo "Initial sync: done" || echo "Initial sync: not yet"
+  if [ -f "$MARK" ]; then
+    echo "Initial sync: done"
+  else
+    echo "Initial sync: not yet"
+  fi
   if command -v systemctl >/dev/null; then
     systemctl --user list-timers blobnot-sync.timer --no-pager 2>/dev/null || true
     journalctl --user -u blobnot-sync.service -n 15 --no-pager 2>/dev/null || true
@@ -190,7 +198,9 @@ uninstall() {
     systemctl --user disable --now blobnot-sync.timer 2>/dev/null || true
   fi
   rm -f "$UNIT_DIR/blobnot-sync.service" "$UNIT_DIR/blobnot-sync.timer" "$MARK"
-  command -v systemctl >/dev/null && systemctl --user daemon-reload || true
+  if command -v systemctl >/dev/null; then
+    systemctl --user daemon-reload || true
+  fi
   say "Sync stopped. Your notes stay where they are."
 }
 

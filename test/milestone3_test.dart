@@ -116,7 +116,9 @@ void main() {
 
   group('Note model', () {
     test('titleFromPath strips extension', () {
-      expect(Note.titleFromPath('C:\\v\\Hello.md'), 'Hello');
+      // Built with the host's separator: the tests also run on Linux CI.
+      final sep = Platform.pathSeparator;
+      expect(Note.titleFromPath('${sep}v${sep}Hello.md'), 'Hello');
     });
   });
 }

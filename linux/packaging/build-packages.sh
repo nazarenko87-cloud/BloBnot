@@ -27,7 +27,9 @@ trap 'rm -rf "$WORK"' EXIT
 
 # Debian versions must start with a digit; "2.5" becomes "2.5.0".
 DEB_VERSION="$VERSION"
-[[ "$DEB_VERSION" =~ ^[0-9]+\.[0-9]+$ ]] && DEB_VERSION="$DEB_VERSION.0"
+if [[ "$DEB_VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+  DEB_VERSION="$DEB_VERSION.0"
+fi
 
 # ---------- .deb ----------
 DEB="$WORK/deb"
@@ -62,8 +64,12 @@ EOF
 cat > "$DEB/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
-command -v update-desktop-database >/dev/null && update-desktop-database -q || true
-command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+if command -v update-desktop-database >/dev/null; then
+  update-desktop-database -q || true
+fi
+if command -v gtk-update-icon-cache >/dev/null; then
+  gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+fi
 EOF
 cp "$DEB/DEBIAN/postinst" "$DEB/DEBIAN/postrm"
 chmod 0755 "$DEB/DEBIAN/postinst" "$DEB/DEBIAN/postrm"
