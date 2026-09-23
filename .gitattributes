@@ -1,0 +1,4 @@
+# Shell scripts and Linux desktop files run on Linux: a Windows checkout
+# must not give them CRLF line endings, which bash and desktop parsers reject.
+*.sh text eol=lf
+*.desktop text eol=lf

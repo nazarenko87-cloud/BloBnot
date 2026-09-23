@@ -1,0 +1,90 @@
+name: Linux build
+
+# Builds the Linux app, packages it as .deb and AppImage, and checks the
+# rclone sync script against a real rclone. Called by ci.yml on every push
+# and by release.yml for tagged releases.
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+env:
+  FLUTTER_VERSION: '3.44.6'
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev \
+            rclone shellcheck desktop-file-utils
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build the app
+        run: |
+          flutter pub get
+          flutter build linux --release
+
+      - name: Check the scripts and desktop entry
+        run: |
+          shellcheck linux/rclone/blobnot-sync-setup.sh linux/packaging/build-packages.sh
+          desktop-file-validate linux/packaging/dev.bloknot.blobnot.desktop
+
+      - name: Package .deb and AppImage
+        run: bash linux/packaging/build-packages.sh "${{ inputs.version }}" dist
+
+      - name: Install the .deb and start the app
+        run: |
+          sudo apt-get install -y ./dist/BloBnot-*-amd64.deb xvfb
+          test -x /usr/bin/blobnot
+          test -x /usr/bin/blobnot-sync-setup
+          test -f /usr/share/applications/dev.bloknot.blobnot.desktop
+          # Runs under a virtual display: it must still be alive after a few
+          # seconds, i.e. it started and did not crash on a missing library.
+          export HOME="$RUNNER_TEMP/home"; mkdir -p "$HOME"
+          xvfb-run -a blobnot > app.log 2>&1 &
+          sleep 8
+          if pgrep -x blobnot > /dev/null; then
+            echo "BloBnot is running"; pkill -x blobnot || true
+          else
+            cat app.log; echo "BloBnot exited early"; exit 1
+          fi
+
+      - name: Two-way sync with rclone (local folders stand in for Drive)
+        run: |
+          export XDG_CONFIG_HOME="$RUNNER_TEMP/cfg"
+          R="$RUNNER_TEMP/remote"; L="$RUNNER_TEMP/local"
+          mkdir -p "$R/_hot"
+          printf '# From Drive\n' > "$R/Drive note.md"
+          printf -- '- [ ] Call Oleg\n' > "$R/_hot/tasks.md"
+          blobnot-sync-setup --remote "$R" --local "$L" --no-config --no-systemd
+          test -f "$L/Drive note.md"
+          test -f "$L/_hot/tasks.md"
+
+          printf '# From laptop\n' > "$L/Laptop note.md"
+          blobnot-sync-setup --run
+          test -f "$R/Laptop note.md"
+
+          sleep 2
+          printf 'edited on Drive\n' >> "$R/Drive note.md"
+          blobnot-sync-setup --run
+          grep -q 'edited on Drive' "$L/Drive note.md"
+          blobnot-sync-setup --status
+          echo "Two-way sync works"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*

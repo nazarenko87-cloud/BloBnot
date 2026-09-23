@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+
+import 'app_paths.dart';
 
 /// Per-vault settings persisted to `{vault}/settings.json` so they travel
 /// with the vault (e.g. through Google Drive).
@@ -110,21 +111,8 @@ class AppSettings {
   /// settings file. Tests MUST set this to avoid clobbering the user's own.
   static File? overrideFile;
 
-  static Future<File> _resolve() async {
-    final override = overrideFile;
-    if (override != null) return override;
-    if (!Platform.isAndroid && !Platform.isIOS) {
-      final home =
-          Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'];
-      if (home != null && home.isNotEmpty) {
-        return File(p.join(home, '.bloknot', 'settings.json'));
-      }
-    }
-    // A mobile app's own storage — writable, unlike '/' which a missing HOME
-    // used to resolve to (that made opening a vault fail outright).
-    final dir = await getApplicationSupportDirectory();
-    return File(p.join(dir.path, 'settings.json'));
-  }
+  static Future<File> _resolve() async =>
+      overrideFile ?? await AppPaths.settingsFile();
 
   static Future<Map<String, dynamic>> _read() async {
     try {

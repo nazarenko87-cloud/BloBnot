@@ -3,27 +3,23 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
-import 'package:path/path.dart' as p;
 
-/// Local launch password: salted SHA-256, stored in `~/.bloknot/settings.json`
+import 'app_paths.dart';
+
+/// Local launch password: salted SHA-256, stored in the app's settings file
 /// (app-local — deliberately does NOT travel with the vault).
 class PasswordStore {
-  PasswordStore({File? file}) : _file = file ?? _defaultFile();
+  PasswordStore({File? file}) : _override = file;
 
-  final File _file;
+  final File? _override;
 
-  static File _defaultFile() {
-    final home =
-        Platform.environment['USERPROFILE'] ??
-        Platform.environment['HOME'] ??
-        '.';
-    return File(p.join(home, '.bloknot', 'settings.json'));
-  }
+  Future<File> get _file async => _override ?? await AppPaths.settingsFile();
 
   Future<Map<String, dynamic>> _read() async {
     try {
-      if (!await _file.exists()) return {};
-      return jsonDecode(await _file.readAsString()) as Map<String, dynamic>;
+      final file = await _file;
+      if (!await file.exists()) return {};
+      return jsonDecode(await file.readAsString()) as Map<String, dynamic>;
     } on FormatException {
       return {};
     } on IOException {
@@ -32,8 +28,9 @@ class PasswordStore {
   }
 
   Future<void> _write(Map<String, dynamic> data) async {
-    await _file.parent.create(recursive: true);
-    await _file.writeAsString(jsonEncode(data));
+    final file = await _file;
+    await file.parent.create(recursive: true);
+    await file.writeAsString(jsonEncode(data));
   }
 
   static String hashOf(String password, String salt) =>

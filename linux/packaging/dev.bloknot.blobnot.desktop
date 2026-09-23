@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=BloBnot
+GenericName=Notes
+Comment=Markdown notes with wiki links, a graph and hot tasks
+Comment[uk]=Нотатки в Markdown з посиланнями, графом і гарячими задачами
+Comment[ru]=Заметки в Markdown со ссылками, графом и горячими задачами
+Exec=blobnot %F
+Icon=dev.bloknot.blobnot
+Terminal=false
+Categories=Office;Utility;TextEditor;
+Keywords=notes;markdown;wiki;tasks;
+MimeType=text/markdown;text/plain;
+StartupWMClass=dev.bloknot.blobnot

@@ -3,7 +3,8 @@ name: Release
 # Push a version tag and this produces the whole release:
 #   git tag v2.2 && git push origin v2.2
 #
-# Assets: a Windows installer, a portable Windows zip, and the Android APK.
+# Assets: a Windows installer, a portable Windows zip, the Android APK, and a
+# Linux .deb and AppImage.
 on:
   push:
     tags: ['v*']
@@ -110,8 +111,14 @@ jobs:
           name: android
           path: dist/*
 
+  linux:
+    needs: version
+    uses: ./.github/workflows/linux.yml
+    with:
+      version: ${{ needs.version.outputs.value }}
+
   release:
-    needs: [version, windows, android]
+    needs: [version, windows, android, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -142,3 +149,12 @@ jobs:
             **Android** — download the `.apk` and allow installing from an unknown source.
             On first launch, pick a vault folder; a Google Drive folder syncs your notes across
             devices.
+
+            **Linux** — on Ubuntu or Debian, download the `.deb` and run
+            `sudo apt install ./BloBnot-${{ needs.version.outputs.value }}-amd64.deb`;
+            BloBnot then appears in the app menu. On any other distribution, the `.AppImage`
+            runs as is: make it executable and start it.
+
+            To keep the vault in sync with Google Drive on Linux, run `blobnot-sync-setup`
+            once (it comes with the .deb). It connects rclone to your Drive, copies the vault
+            to `~/BloBnot-Vault` and keeps both in sync every 5 minutes.

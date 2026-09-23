@@ -7,25 +7,20 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../models/note.dart';
+import 'app_paths.dart';
 
-/// Exports notes to `~/Downloads` as .html or .pdf. Returns the written path.
+/// Exports notes to the downloads folder as .html or .pdf. Returns the
+/// written path.
 class ExportService {
-  static String get _downloads {
-    final home =
-        Platform.environment['USERPROFILE'] ??
-        Platform.environment['HOME'] ??
-        '.';
-    return p.join(home, 'Downloads');
-  }
-
   static String _safeName(String title) =>
       title.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
 
   static Future<String> _uniquePath(String title, String ext) async {
-    var path = p.join(_downloads, '${_safeName(title)}.$ext');
+    final downloads = await AppPaths.downloads();
+    var path = p.join(downloads, '${_safeName(title)}.$ext');
     var i = 1;
     while (await File(path).exists()) {
-      path = p.join(_downloads, '${_safeName(title)} ($i).$ext');
+      path = p.join(downloads, '${_safeName(title)} ($i).$ext');
       i++;
     }
     return path;

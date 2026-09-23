@@ -1,0 +1,46 @@
+name: CI
+
+# Every push to main: run the tests and prove the Linux build and packages
+# still work. Releases themselves come from release.yml on a version tag.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  FLUTTER_VERSION: '3.44.6'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+
+      - name: App
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+      - name: MCP server
+        working-directory: mcp
+        run: |
+          npm ci
+          npm test
+
+  linux:
+    uses: ./.github/workflows/linux.yml
+    with:
+      version: 0.0.0-ci
