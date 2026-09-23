@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../state/vault_controller.dart';
 import '../utils/hot_tasks.dart';
+import 'inline_editor.dart';
 import 'theme.dart';
 
 /// Short running to-dos: an "In progress" column and a "Done" column.
@@ -240,93 +240,6 @@ Future<void> showHotTaskMenu(
   onEdit();
 }
 
-/// Edits a task's text right where it sits in the list. Enter or clicking
-/// elsewhere saves; Esc cancels. Owns its controller, so the field stays
-/// valid for as long as it is on screen.
-class _InlineTaskEditor extends StatefulWidget {
-  const _InlineTaskEditor({
-    required this.initial,
-    required this.onDone,
-    this.style,
-  });
-
-  final String initial;
-  final TextStyle? style;
-
-  /// Called once: with the new text, or null when editing was cancelled.
-  final ValueChanged<String?> onDone;
-
-  @override
-  State<_InlineTaskEditor> createState() => _InlineTaskEditorState();
-}
-
-class _InlineTaskEditorState extends State<_InlineTaskEditor> {
-  late final _field = TextEditingController(text: widget.initial)
-    ..selection = TextSelection(
-      baseOffset: 0,
-      extentOffset: widget.initial.length,
-    );
-  final _focus = FocusNode();
-  bool _finished = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _focus.addListener(() {
-      if (!_focus.hasFocus) _finish(_field.text);
-    });
-  }
-
-  @override
-  void dispose() {
-    _field.dispose();
-    _focus.dispose();
-    super.dispose();
-  }
-
-  void _finish(String? text) {
-    if (_finished) return;
-    _finished = true;
-    widget.onDone(text);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-    return CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.escape): () => _finish(null),
-      },
-      child: TextField(
-        key: const Key('hot-edit-field'),
-        controller: _field,
-        focusNode: _focus,
-        autofocus: true,
-        maxLength: 200,
-        style: widget.style,
-        textInputAction: TextInputAction.done,
-        onSubmitted: _finish,
-        onTapOutside: (_) => _focus.unfocus(),
-        decoration: InputDecoration(
-          counterText: '',
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 8,
-            vertical: 6,
-          ),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: accent, width: 1.5),
-          ),
-          helperText: 'Enter to save · Esc to cancel',
-          helperStyle: const TextStyle(fontSize: 11),
-        ),
-      ),
-    );
-  }
-}
-
 class _Column extends StatelessWidget {
   const _Column({
     required this.title,
@@ -501,7 +414,7 @@ class _InProgressTileState extends State<_InProgressTile> {
                   child: _editing
                       ? Padding(
                           padding: const EdgeInsets.only(top: 1),
-                          child: _InlineTaskEditor(
+                          child: InlineTextEditor(
                             initial: widget.task.text,
                             style: const TextStyle(fontSize: 15),
                             onDone: _finishEditing,
@@ -701,7 +614,7 @@ class _DoneTileState extends State<_DoneTile> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: _editing
-                      ? _InlineTaskEditor(
+                      ? InlineTextEditor(
                           initial: task.text,
                           style: const TextStyle(fontSize: 14),
                           onDone: _finishEditing,

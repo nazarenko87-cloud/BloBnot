@@ -293,6 +293,75 @@ async function exists(file) {
     .catch(() => false);
 }
 
+// --- note fields: the `---` block at the top, as the app reads it ---
+
+const KEY_VALUE = /^([A-Za-zЀ-ӿ0-9_][\wЀ-ӿ .\-]*?)\s*:\s*(.*)$/;
+const isFence = (line) => line.trimEnd() === '---';
+
+function closingFence(lines) {
+  if (!lines.length || !isFence(lines[0])) return -1;
+  for (let i = 1; i < lines.length; i++) if (isFence(lines[i])) return i;
+  return -1;
+}
+
+function unquote(v) {
+  const t = v.trim();
+  if (t.length >= 2 && ((t[0] === '"' && t.endsWith('"')) || (t[0] === "'" && t.endsWith("'")))) {
+    return t.slice(1, -1);
+  }
+  return t;
+}
+
+/** `{key: value}` from the note's fields block; `{}` when it has none. */
+export function parseFields(body) {
+  const lines = body.split('\n');
+  const close = closingFence(lines);
+  const fields = {};
+  if (close < 0) return fields;
+  for (const raw of lines.slice(1, close)) {
+    const m = KEY_VALUE.exec(raw.trimEnd());
+    if (m) fields[m[1].trim()] = unquote(m[2]);
+  }
+  return fields;
+}
+
+function encodeField(value) {
+  const v = String(value).replace(/[\r\n]+/g, ' ');
+  const quote = v !== v.trim() || v.includes(' #') || v.startsWith('#') || v === '---';
+  return quote ? `"${v.replace(/"/g, "'")}"` : v;
+}
+
+/**
+ * Set one field, adding the block or line as needed; an empty value removes
+ * it. Same rules as the app: keys match case-insensitively, other lines in
+ * the block are left untouched.
+ */
+export function setField(body, key, value) {
+  const k = String(key).trim();
+  if (!k) return body;
+  const lines = body.split('\n');
+  const close = closingFence(lines);
+  const remove = String(value).trim() === '';
+  if (close < 0) {
+    return remove ? body : ['---', `${k}: ${encodeField(value)}`, '---', ...lines].join('\n');
+  }
+  let found = false;
+  const updated = [];
+  for (const raw of lines.slice(1, close)) {
+    const m = KEY_VALUE.exec(raw.trimEnd());
+    if (m && m[1].trim().toLowerCase() === k.toLowerCase()) {
+      found = true;
+      if (!remove) updated.push(`${m[1].trim()}: ${encodeField(value)}`);
+      continue;
+    }
+    updated.push(raw);
+  }
+  if (!found && !remove) updated.push(`${k}: ${encodeField(value)}`);
+  const rest = lines.slice(close + 1);
+  if (updated.every((l) => l.trim() === '')) return rest.join('\n');
+  return ['---', ...updated, '---', ...rest].join('\n');
+}
+
 /** Values the app derives from note text on the fly rather than storing. */
 function derive(body) {
   const links = [...body.matchAll(LINK_RE)].map((m) => m[1].trim()).filter(Boolean);
@@ -303,6 +372,7 @@ function derive(body) {
     .filter((s) => !Number.isNaN(Date.parse(s)));
   const words = body.trim() ? body.trim().split(/\s+/).length : 0;
   return {
+    fields: parseFields(body),
     links: [...new Set(links)],
     tags: [...new Set(tags)],
     wordCount: words,

@@ -17,6 +17,7 @@ import '../services/meta_paths.dart';
 import '../services/vault_backend.dart';
 import '../utils/hot_tasks.dart';
 import '../utils/line_reminders.dart';
+import '../utils/properties.dart';
 
 /// Single source of truth for the open vault: notes, selection, theme,
 /// reminders and the launch-password lock.
@@ -393,7 +394,53 @@ class VaultController extends ChangeNotifier {
     _current = saved;
     final idx = _notes.indexWhere((n) => n.path == saved.path);
     if (idx >= 0) _notes[idx] = saved;
-    notifyListeners(); // flip the save indicator back to "Saved"
+    // dispose() flushes a pending edit and does not wait for it; by the time
+    // the write lands there may be nobody left to notify.
+    _notifyIfAlive(); // flip the save indicator back to "Saved"
+  }
+
+  /// Every field name used in the vault, most used first (ties by name).
+  List<String> get propertyKeys {
+    final counts = <String, int>{};
+    final spelling = <String, String>{};
+    for (final n in _notes) {
+      for (final k in n.properties.keys) {
+        final lower = k.toLowerCase();
+        counts[lower] = (counts[lower] ?? 0) + 1;
+        spelling.putIfAbsent(lower, () => k);
+      }
+    }
+    final keys = counts.keys.toList()
+      ..sort((a, b) {
+        final byCount = counts[b]!.compareTo(counts[a]!);
+        return byCount != 0 ? byCount : a.compareTo(b);
+      });
+    return [for (final k in keys) spelling[k]!];
+  }
+
+  /// Write one field of a note straight to disk. An empty [value] removes
+  /// the field. Used by the table view, where the note is not open in the
+  /// editor.
+  Future<void> setNoteProperty(String path, String key, String value) async {
+    final storage = _storage;
+    if (storage == null) return;
+    if (_current?.path == path) await _flushPendingSave();
+    final idx = _notes.indexWhere((n) => n.path == path);
+    if (idx < 0) return;
+    final note = _notes[idx];
+    final body = setProperty(note.body, key, value);
+    if (body == note.body) return;
+    final updated = note.copyWith(body: body);
+    _notes[idx] = updated;
+    if (_current?.path == path) _current = updated;
+    notifyListeners();
+    final saved = await storage.write(updated);
+    final after = _notes.indexWhere((n) => n.path == path);
+    if (after >= 0 && _notes[after].body == saved.body) _notes[after] = saved;
+    if (_current?.path == path && _current!.body == saved.body) {
+      _current = saved;
+    }
+    _notifyIfAlive();
   }
 
   /// Templates are `.md` files in `{vault}/_templates/`.

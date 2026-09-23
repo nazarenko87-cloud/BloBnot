@@ -11,6 +11,7 @@ import {
   cleanHotText,
   hotStamp,
   resolveVaultRoot,
+  setField,
 } from './vault.js';
 
 /**
@@ -21,7 +22,7 @@ import {
  * (Ctrl+R), which is how edits made here show up in an already-open window.
  */
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 
 const server = new McpServer({ name: 'blobnot', version: VERSION });
 
@@ -75,6 +76,7 @@ const summary = (note) => ({
   wordCount: note.wordCount,
   tags: note.tags,
   checklist: note.checklist,
+  fields: note.fields,
 });
 
 server.registerTool(
@@ -313,6 +315,63 @@ server.registerTool(
     events.push(event);
     await vault.writeEvents(events);
     return json({ action: 'created', event });
+  }),
+);
+
+server.registerTool(
+  'find_notes_by_field',
+  {
+    title: 'Find notes by field',
+    description:
+      'Notes whose fields (the `---` block at the top, e.g. manager / status / score) ' +
+      'match. With only a field name, every note that has that field. Values match ' +
+      'case-insensitively. This is the same data the app shows in its Table view.',
+    inputSchema: {
+      field: z.string().describe('Field name, e.g. "status"'),
+      value: z.string().optional().describe('Exact value to match, e.g. "needs fixes"'),
+      project: z.string().optional().describe('Only notes in this project folder'),
+    },
+  },
+  tool(async ({ field, value, project }, vault) => {
+    const key = field.trim().toLowerCase();
+    const wanted = value?.trim().toLowerCase();
+    const hits = (await vault.listNotes()).filter((n) => {
+      if (project && n.project !== project) return false;
+      const entry = Object.entries(n.fields).find(([k]) => k.toLowerCase() === key);
+      if (!entry) return false;
+      return wanted === undefined || entry[1].toLowerCase() === wanted;
+    });
+    return json({ count: hits.length, notes: hits.map(summary) });
+  }),
+);
+
+server.registerTool(
+  'set_note_field',
+  {
+    title: 'Set note field',
+    description:
+      'Set one field of a note — e.g. status to "done" or score to 4 — in its `---` block, ' +
+      'creating the block if needed. An empty value removes the field. The rest of the ' +
+      'note is left untouched.',
+    inputSchema: {
+      title: z.string().describe('Note title'),
+      field: z.string().describe('Field name'),
+      value: z.string().describe('New value; empty to remove the field'),
+    },
+  },
+  tool(async ({ title, field, value }, vault) => {
+    const note = await vault.findNote(title);
+    if (!note) return failure(`No note titled "${title}".`);
+    if (!field.trim() || field.includes(':')) return failure('Give a field name without ":".');
+    const body = setField(note.body, field, value);
+    if (body === note.body) return text(`"${note.title}" already has ${field}: ${value}.`);
+    const saved = await vault.writeNote({
+      title: note.title,
+      body,
+      project: note.project,
+      overwrite: true,
+    });
+    return json({ action: value.trim() ? 'set' : 'removed', note: summary(saved) });
   }),
 );
 

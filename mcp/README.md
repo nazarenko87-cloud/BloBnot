@@ -91,6 +91,12 @@ vault path and what it found there.
 | `list_hot_tasks` | Hot tasks in progress, and done ones with when |
 | `add_hot_task` | Add a one-line to-do to the top of Hot tasks |
 | `complete_hot_task` | Mark a hot task done by its text (or a unique part of it) |
+| `find_notes_by_field` | Notes whose fields match, e.g. `status` = `needs fixes` |
+| `set_note_field` | Set or remove one field of a note, e.g. `score` to `4` |
+
+Every note also comes back with its `fields` — the `---` block at the top of the
+note that the app's Table view is built from. That lets you ask things like "which
+weekly reports are still marked needs fixes?" or "set Oleg's report status to done".
 
 ## Working alongside the app
 

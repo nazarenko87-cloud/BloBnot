@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import '../utils/properties.dart';
+
 /// A single note backed by a `.md` file in the vault.
 ///
 /// Immutable value type — mutations return new copies (see [copyWith]).
@@ -84,6 +86,11 @@ class Note {
     final done = boxes.where((m) => m.group(1)!.toLowerCase() == 'x').length;
     return _checklistProgress = done / boxes.length;
   }
+
+  /// Fields from the `---` block at the top of the note (see properties.dart).
+  Map<String, String>? _properties;
+  Map<String, String> get properties =>
+      _properties ??= Map.unmodifiable(parseFrontMatter(body).properties);
 
   static String titleFromPath(String p) {
     final name = p.split(Platform.pathSeparator).last;

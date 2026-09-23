@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 
-import { Vault, VaultError } from '../src/vault.js';
+import { Vault, VaultError, parseFields, setField } from '../src/vault.js';
 
 let root;
 let vault;
@@ -101,6 +101,25 @@ test('hot tasks: writes open first, then done newest first', async () => {
     saved,
     '# Hot tasks\n\n- [ ] open\n- [x] newer ✓ 2026-09-21 09:00\n- [x] older ✓ 2026-09-20 10:00\n',
   );
+});
+
+test('fields: parsed like the app, and written without touching other lines', () => {
+  const body = '---\nmanager: Олег\nstatus: "needs fixes"\n# keep\n---\n# Report\n';
+  assert.deepEqual(parseFields(body), { manager: 'Олег', status: 'needs fixes' });
+  assert.deepEqual(parseFields('# no block\n---\nx: 1'), {});
+
+  assert.equal(
+    setField(body, 'STATUS', 'done'),
+    '---\nmanager: Олег\nstatus: done\n# keep\n---\n# Report\n',
+  );
+  assert.equal(setField('# N', 'score', '4'), '---\nscore: 4\n---\n# N');
+  assert.equal(setField('---\nscore: 4\n---\n# N', 'score', ''), '# N');
+});
+
+test('fields show up on listed notes', async () => {
+  await fs.writeFile(path.join(root, 'Report.md'), '---\nstatus: ok\n---\n# R\n');
+  const note = await vault.findNote('Report');
+  assert.deepEqual(note.fields, { status: 'ok' });
 });
 
 test('rejects paths and titles that escape the vault', async () => {

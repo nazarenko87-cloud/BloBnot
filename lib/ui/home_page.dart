@@ -14,6 +14,7 @@ import 'external_file_view.dart';
 import 'graph_view.dart';
 import 'calculator_dialog.dart';
 import 'hot_tasks_view.dart';
+import 'table_view.dart';
 import 'lock_screen.dart';
 import 'note_list.dart';
 import 'open_tabs.dart';
@@ -64,21 +65,31 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
+/// What fills the main area. One value, so two views can never be "on" at
+/// once. The graph is separate: a side panel on desktop.
+enum _MainView { notes, hot, dashboard, table }
+
 class _HomePageState extends State<HomePage> {
   bool _showList = true;
-  bool _showDashboard = false;
-  bool _showHot = false;
+  _MainView _view = _MainView.notes;
 
-  /// Back to the editor from any full-screen view. On a phone the graph is a
-  /// full-screen view too; on desktop it is a side panel and stays as it was.
-  void _showNotes() {
+  bool get _showDashboard => _view == _MainView.dashboard;
+  bool get _showHot => _view == _MainView.hot;
+  bool get _showTable => _view == _MainView.table;
+
+  /// Switch the main area. On a phone the graph is a full-screen view too,
+  /// so any other view replaces it there.
+  void _go(_MainView view) {
     final phone = MediaQuery.sizeOf(context).width < kMobileBreakpoint;
     setState(() {
-      _showHot = false;
-      _showDashboard = false;
+      _view = view;
       if (phone) _showGraph = false;
     });
   }
+
+  /// Back to the editor from any full-screen view. On desktop the graph
+  /// panel stays as it was.
+  void _showNotes() => _go(_MainView.notes);
 
   bool _showGraph = false;
   // Graph pane width as a fraction of the editor+graph area (18%–72%).
@@ -118,36 +129,37 @@ class _HomePageState extends State<HomePage> {
               _rail(context),
               const SizedBox(width: kShellGap),
               Expanded(
-                child: _showHot
-                    ? HotTasksView(card: (child) => ShellCard(child: child))
-                    : _showDashboard
-                    ? ShellCard(
-                        child: DashboardView(
-                          onOpenNote: () =>
-                              setState(() => _showDashboard = false),
-                        ),
-                      )
-                    : Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (_showList) ...[
-                            SizedBox(
-                              width: 260,
-                              child: ShellCard(
-                                child: NoteList(
-                                  onNew: () => _newNote(context),
-                                  onNewInProject: (project) => _newNote(
-                                    context,
-                                    initialProject: project,
-                                  ),
-                                ),
-                              ),
+                child: switch (_view) {
+                  _MainView.hot => HotTasksView(
+                    card: (child) => ShellCard(child: child),
+                  ),
+                  _MainView.table => NoteTableView(
+                    card: (child) => ShellCard(child: child),
+                    onOpenNote: _showNotes,
+                  ),
+                  _MainView.dashboard => ShellCard(
+                    child: DashboardView(onOpenNote: _showNotes),
+                  ),
+                  _MainView.notes => Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_showList) ...[
+                        SizedBox(
+                          width: 260,
+                          child: ShellCard(
+                            child: NoteList(
+                              onNew: () => _newNote(context),
+                              onNewInProject: (project) =>
+                                  _newNote(context, initialProject: project),
                             ),
-                            const SizedBox(width: kShellGap),
-                          ],
-                          Expanded(child: _editorAndGraph(context)),
-                        ],
-                      ),
+                          ),
+                        ),
+                        const SizedBox(width: kShellGap),
+                      ],
+                      Expanded(child: _editorAndGraph(context)),
+                    ],
+                  ),
+                },
               ),
             ],
           ),
@@ -223,7 +235,7 @@ class _HomePageState extends State<HomePage> {
                     size: 30,
                     color: kHotColor,
                   ),
-                  onPressed: () => setState(() => _showHot = true),
+                  onPressed: () => _go(_MainView.hot),
                 ),
               ),
               const SizedBox(height: 8),
@@ -236,17 +248,20 @@ class _HomePageState extends State<HomePage> {
                       item(
                         Icons.description_outlined,
                         'Notes',
-                        !_showDashboard && !_showHot,
+                        _view == _MainView.notes,
                         _showNotes,
                       ),
                       item(
                         Icons.dashboard_outlined,
                         'Dashboard',
-                        _showDashboard && !_showHot,
-                        () => setState(() {
-                          _showDashboard = true;
-                          _showHot = false;
-                        }),
+                        _showDashboard,
+                        () => _go(_MainView.dashboard),
+                      ),
+                      item(
+                        Icons.table_chart_outlined,
+                        'Table — notes by their fields',
+                        _showTable,
+                        () => _go(_MainView.table),
                       ),
                       item(
                         Icons.view_sidebar_outlined,
@@ -254,8 +269,7 @@ class _HomePageState extends State<HomePage> {
                         _showList,
                         () => setState(() {
                           _showList = !_showList;
-                          _showHot = false;
-                          _showDashboard = false;
+                          _view = _MainView.notes;
                         }),
                       ),
                       item(
@@ -271,10 +285,7 @@ class _HomePageState extends State<HomePage> {
                         () => setState(() {
                           _showGraph = !_showGraph;
                           // The graph is a panel beside the editor.
-                          if (_showGraph) {
-                            _showHot = false;
-                            _showDashboard = false;
-                          }
+                          if (_showGraph) _view = _MainView.notes;
                         }),
                       ),
                       item(
@@ -334,6 +345,8 @@ class _HomePageState extends State<HomePage> {
     String title;
     if (_showHot) {
       title = 'Hot tasks';
+    } else if (_showTable) {
+      title = 'Table';
     } else if (_showDashboard) {
       title = 'Dashboard';
     } else if (_showGraph) {
@@ -347,10 +360,13 @@ class _HomePageState extends State<HomePage> {
     Widget body;
     if (_showHot) {
       body = const Padding(padding: EdgeInsets.all(8), child: HotTasksView());
-    } else if (_showDashboard) {
-      body = DashboardView(
-        onOpenNote: () => setState(() => _showDashboard = false),
+    } else if (_showTable) {
+      body = Padding(
+        padding: const EdgeInsets.all(8),
+        child: NoteTableView(onOpenNote: _showNotes),
       );
+    } else if (_showDashboard) {
+      body = DashboardView(onOpenNote: _showNotes);
     } else if (_showGraph) {
       body = GraphView(onHide: () => setState(() => _showGraph = false));
     } else if (hasExternalFiles) {
@@ -508,37 +524,34 @@ class _HomePageState extends State<HomePage> {
               selected: _showHot,
               onTap: () {
                 Navigator.pop(context);
-                setState(() {
-                  _showHot = true;
-                  _showDashboard = false;
-                  _showGraph = false;
-                });
+                _go(_MainView.hot);
               },
             ),
             navItem(
               Icons.description_outlined,
               'Notes',
-              !_showHot && !_showDashboard && !_showGraph,
+              _view == _MainView.notes && !_showGraph,
               _showNotes,
             ),
             navItem(
               Icons.dashboard_outlined,
               'Dashboard',
-              _showDashboard && !_showHot,
-              () => setState(() {
-                _showDashboard = true;
-                _showGraph = false;
-                _showHot = false;
-              }),
+              _showDashboard,
+              () => _go(_MainView.dashboard),
+            ),
+            navItem(
+              Icons.table_chart_outlined,
+              'Table',
+              _showTable,
+              () => _go(_MainView.table),
             ),
             navItem(
               Icons.hub_outlined,
               'Graph',
-              _showGraph && !_showHot,
+              _showGraph && _view == _MainView.notes,
               () => setState(() {
+                _view = _MainView.notes;
                 _showGraph = true;
-                _showDashboard = false;
-                _showHot = false;
               }),
             ),
             navItem(

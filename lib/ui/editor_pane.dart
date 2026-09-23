@@ -17,6 +17,7 @@ import '../state/vault_controller.dart';
 import '../utils/editor_ops.dart';
 import '../utils/line_reminders.dart';
 import '../utils/markdown_highlight.dart';
+import '../utils/properties.dart';
 import 'sticker_picker.dart';
 import 'theme.dart';
 
@@ -179,6 +180,7 @@ class _EditorPaneState extends State<EditorPane> {
             onChanged: _commitText,
             onAttach: () => _attachFile(context),
             onSticker: () => _pickSticker(context),
+            onAddField: _addField,
             onExportHtml: () => _export(context, note, ExportService.toHtml),
             onExportPdf: () => _export(context, note, ExportService.toPdf),
             onAiContext: () => _copyAiContext(context, note),
@@ -622,14 +624,20 @@ class _EditorPaneState extends State<EditorPane> {
               alignment: Alignment.centerRight,
               child: SegmentedButton<ViewMode>(
                 segments: const [
-                  ButtonSegment(value: ViewMode.edit, icon: Icon(Icons.edit)),
+                  ButtonSegment(
+                    value: ViewMode.edit,
+                    icon: Icon(Icons.edit),
+                    tooltip: 'Edit',
+                  ),
                   ButtonSegment(
                     value: ViewMode.split,
                     icon: Icon(Icons.vertical_split),
+                    tooltip: 'Edit and preview side by side',
                   ),
                   ButtonSegment(
                     value: ViewMode.preview,
                     icon: Icon(Icons.visibility),
+                    tooltip: 'Preview',
                   ),
                 ],
                 selected: {_mode},
@@ -746,6 +754,30 @@ class _EditorPaneState extends State<EditorPane> {
     return _imageExts.contains(ext)
         ? '![$name]($encoded)\n'
         : '[📎 $name]($encoded)\n';
+  }
+
+  /// Opens a new `key: value` line in the note's fields block — creating the
+  /// block at the top when there is none — and puts the caret on it.
+  void _addField() {
+    final text = _textController.text;
+    final front = parseFrontMatter(text);
+    final lines = text.split('\n');
+    final int caretLine;
+    if (front.hasBlock) {
+      caretLine = front.lineCount - 1; // just above the closing fence
+      lines.insert(caretLine, '');
+    } else {
+      lines.insertAll(0, ['---', '', '---']);
+      caretLine = 1;
+    }
+    final caret = lines
+        .take(caretLine)
+        .fold<int>(0, (sum, l) => sum + l.length + 1);
+    _textController.text = lines.join('\n');
+    _textController.selection = TextSelection.collapsed(offset: caret);
+    _commitText();
+    if (_mode == ViewMode.preview) setState(() => _mode = ViewMode.edit);
+    _focus.requestFocus();
   }
 
   void _insertAtCursor(String text) {
@@ -889,55 +921,124 @@ class _EditorPaneState extends State<EditorPane> {
     );
     // Render the debounced body (not note.body) so parsing is throttled.
     final source = _previewBody;
-    final rendered = LineReminders.linkify(Checklist.linkify(source))
+    final linked = LineReminders.linkify(Checklist.linkify(source))
         .replaceAllMapped(
           RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]'),
           (m) => '**${(m.group(2) ?? m.group(1))!.trim()}**',
         );
+    // The fields block is shown as a card above the text, not as raw lines.
+    // Linkify keeps line counts, so dropping the block's lines from the
+    // rendered text leaves checkbox line numbers pointing at `source`.
+    final front = parseFrontMatter(source);
+    final rendered = front.hasBlock
+        ? linked.split('\n').skip(front.lineCount).join('\n')
+        : linked;
     return MediaQuery.withClampedTextScaling(
       minScaleFactor: scale,
       maxScaleFactor: scale,
-      child: Markdown(
-        data: rendered,
-        selectable: true,
-        padding: const EdgeInsets.all(16),
-        extensionSet: md.ExtensionSet.gitHubFlavored,
-        onTapLink: (text, href, title) {
-          if (href == null || !href.startsWith('checkbox:')) return;
-          final line = int.tryParse(href.substring('checkbox:'.length));
-          if (line == null) return;
-          // Toggle against the rendered source so the line index matches.
-          final toggled = Checklist.toggleLine(source, line);
-          if (toggled != null) _setBody(toggled);
-        },
-        sizedImageBuilder: (config) {
-          final src = config.uri.toString();
-          if (src.startsWith('assets/stickers/')) {
-            // Small squircle emoji-style tile — the sticker art is already a
-            // square face with no baked-in caption, so just fit it in.
-            return ClipRSuperellipse(
-              borderRadius: BorderRadius.circular(14),
-              child: SizedBox(
-                width: 44,
-                height: 44,
-                child: Image.asset(src, fit: BoxFit.contain),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (front.properties.isNotEmpty)
+            _PropertiesCard(properties: front.properties),
+          Expanded(child: _markdown(rendered, source)),
+        ],
+      ),
+    );
+  }
+
+  Widget _markdown(String rendered, String source) {
+    return Markdown(
+      data: rendered,
+      selectable: true,
+      padding: const EdgeInsets.all(16),
+      extensionSet: md.ExtensionSet.gitHubFlavored,
+      onTapLink: (text, href, title) {
+        if (href == null || !href.startsWith('checkbox:')) return;
+        final line = int.tryParse(href.substring('checkbox:'.length));
+        if (line == null) return;
+        // Toggle against the rendered source so the line index matches.
+        final toggled = Checklist.toggleLine(source, line);
+        if (toggled != null) _setBody(toggled);
+      },
+      sizedImageBuilder: (config) {
+        final src = config.uri.toString();
+        if (src.startsWith('assets/stickers/')) {
+          // Small squircle emoji-style tile — the sticker art is already a
+          // square face with no baked-in caption, so just fit it in.
+          return ClipRSuperellipse(
+            borderRadius: BorderRadius.circular(14),
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Image.asset(src, fit: BoxFit.contain),
+            ),
+          );
+        }
+        if (src.startsWith('assets/')) {
+          return Image.asset(src, width: 72, height: 72);
+        }
+        if (src.startsWith('attachments/')) {
+          final root = context.read<VaultController>().vaultRoot;
+          if (root == null) return Text(config.alt ?? src);
+          final name = Uri.decodeComponent(
+            src.substring('attachments/'.length),
+          );
+          final file = File(AttachmentStore(root).pathOf(name));
+          return _AttachmentThumbnail(file: file, alt: config.alt ?? name);
+        }
+        return Text(config.alt ?? src);
+      },
+    );
+  }
+}
+
+/// The note's fields, shown above the preview as a compact two-column card.
+class _PropertiesCard extends StatelessWidget {
+  const _PropertiesCard({required this.properties});
+
+  final Map<String, String> properties;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final muted = scheme.onSurface.withValues(alpha: 0.55);
+    return Container(
+      key: const Key('properties-card'),
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: scheme.onSurface.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final e in properties.entries)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 120,
+                    child: Text(
+                      e.key,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: muted, fontSize: 13),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      e.value.isEmpty ? '—' : e.value,
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ],
               ),
-            );
-          }
-          if (src.startsWith('assets/')) {
-            return Image.asset(src, width: 72, height: 72);
-          }
-          if (src.startsWith('attachments/')) {
-            final root = context.read<VaultController>().vaultRoot;
-            if (root == null) return Text(config.alt ?? src);
-            final name = Uri.decodeComponent(
-              src.substring('attachments/'.length),
-            );
-            final file = File(AttachmentStore(root).pathOf(name));
-            return _AttachmentThumbnail(file: file, alt: config.alt ?? name);
-          }
-          return Text(config.alt ?? src);
-        },
+            ),
+        ],
       ),
     );
   }
@@ -1319,6 +1420,7 @@ class _Toolbar extends StatelessWidget {
     required this.onChanged,
     required this.onAttach,
     required this.onSticker,
+    required this.onAddField,
     required this.onExportHtml,
     required this.onExportPdf,
     required this.onAiContext,
@@ -1329,6 +1431,7 @@ class _Toolbar extends StatelessWidget {
   final VoidCallback onChanged;
   final VoidCallback onAttach;
   final VoidCallback onSticker;
+  final VoidCallback onAddField;
   final VoidCallback onExportHtml;
   final VoidCallback onExportPdf;
   final VoidCallback onAiContext;
@@ -1414,6 +1517,11 @@ class _Toolbar extends StatelessWidget {
               sep(),
               // Group: insert.
               btn(Icons.emoji_emotions_outlined, 'Sticker', onSticker),
+              btn(
+                Icons.view_list_outlined,
+                'Add a field (shows in Table)',
+                onAddField,
+              ),
               sep(),
               // Group: export & AI.
               btn(Icons.code, 'Export HTML', onExportHtml),
