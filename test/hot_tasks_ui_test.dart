@@ -8,6 +8,7 @@ import 'package:blobnot/ui/home_page.dart';
 import 'package:blobnot/ui/hot_tasks_view.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -111,16 +112,35 @@ void main() {
     expect(find.text('Edit task'), findsOneWidget);
     await tester.tap(find.text('Edit task'));
     await tester.pumpAndSettle();
+    // Edited in place — no dialog opens.
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byKey(const Key('hot-edit-field')), findsOneWidget);
     await tester.enterText(
       find.byKey(const Key('hot-edit-field')),
       'Order profile 2 m',
     );
-    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('hot-edit-field')), findsNothing);
     final edited = controller.hotInProgress.firstWhere(
       (t) => t.text == 'Order profile 2 m',
     );
     expect(find.text('Order profile 2 m'), findsOneWidget);
+
+    // Esc cancels an edit and keeps the old text.
+    await tester.tap(
+      find.text('Order profile 2 m'),
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit task'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('hot-edit-field')), 'nope');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('hot-edit-field')), findsNothing);
+    expect(find.text('Order profile 2 m'), findsOneWidget);
+    expect(controller.hotInProgress.any((t) => t.text == 'nope'), isFalse);
 
     // The time it was added is shown on the task.
     expect(
@@ -162,6 +182,22 @@ void main() {
 
     await cleanUp(tester);
   });
+
+  test(
+    'the added label always carries the date, and the year only when older',
+    () {
+      final now = DateTime(2026, 9, 23, 18);
+      expect(hotAddedLabel(DateTime(2026, 9, 23, 9, 5), now), 'Sep 23, 09:05');
+      expect(
+        hotAddedLabel(DateTime(2026, 9, 22, 21, 40), now),
+        'Sep 22, 21:40',
+      );
+      expect(
+        hotAddedLabel(DateTime(2025, 12, 31, 8, 0), now),
+        'Dec 31 2025, 08:00',
+      );
+    },
+  );
 
   test('dayLabel names today, yesterday and older days', () {
     final now = DateTime(2026, 9, 21, 9);

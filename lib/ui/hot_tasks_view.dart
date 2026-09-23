@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../state/vault_controller.dart';
@@ -185,14 +186,16 @@ Future<void> runHotAction(BuildContext context, Future<void> action) async {
   }
 }
 
-/// Right-click (or long-press on a touch screen) menu for a task:
-/// edit its text, or delete it. [at] is the pointer position; without one
-/// the menu opens over the task itself.
+/// Right-click (or long-press on a touch screen) menu for a task: edit its
+/// text in place, or delete it. [at] is the pointer position; without one
+/// the menu opens over the task itself. [onEdit] switches the row into its
+/// inline editor.
 Future<void> showHotTaskMenu(
   BuildContext context,
   HotTask task,
-  Offset? at,
-) async {
+  Offset? at, {
+  required VoidCallback onEdit,
+}) async {
   final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
   final box = context.findRenderObject() as RenderBox?;
   if (overlay == null || box == null) return;
@@ -234,60 +237,92 @@ Future<void> showHotTaskMenu(
     await runHotAction(context, controller.deleteHotTask(task.id));
     return;
   }
-  final edited = await _askForText(context, task.text);
-  if (edited == null || !context.mounted) return;
-  await runHotAction(context, controller.editHotTask(task.id, edited));
+  onEdit();
 }
 
-Future<String?> _askForText(BuildContext context, String initial) =>
-    showDialog<String>(
-      context: context,
-      builder: (context) => _EditTaskDialog(initial: initial),
-    );
-
-/// Owns its text controller, so it lives until the dialog is really gone —
-/// disposing it when the route's future completes would break the field
-/// while the dialog is still animating out.
-class _EditTaskDialog extends StatefulWidget {
-  const _EditTaskDialog({required this.initial});
+/// Edits a task's text right where it sits in the list. Enter or clicking
+/// elsewhere saves; Esc cancels. Owns its controller, so the field stays
+/// valid for as long as it is on screen.
+class _InlineTaskEditor extends StatefulWidget {
+  const _InlineTaskEditor({
+    required this.initial,
+    required this.onDone,
+    this.style,
+  });
 
   final String initial;
+  final TextStyle? style;
+
+  /// Called once: with the new text, or null when editing was cancelled.
+  final ValueChanged<String?> onDone;
 
   @override
-  State<_EditTaskDialog> createState() => _EditTaskDialogState();
+  State<_InlineTaskEditor> createState() => _InlineTaskEditorState();
 }
 
-class _EditTaskDialogState extends State<_EditTaskDialog> {
-  late final _field = TextEditingController(text: widget.initial);
+class _InlineTaskEditorState extends State<_InlineTaskEditor> {
+  late final _field = TextEditingController(text: widget.initial)
+    ..selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: widget.initial.length,
+    );
+  final _focus = FocusNode();
+  bool _finished = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(() {
+      if (!_focus.hasFocus) _finish(_field.text);
+    });
+  }
 
   @override
   void dispose() {
     _field.dispose();
+    _focus.dispose();
     super.dispose();
+  }
+
+  void _finish(String? text) {
+    if (_finished) return;
+    _finished = true;
+    widget.onDone(text);
   }
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Edit task'),
-      content: TextField(
+    final accent = Theme.of(context).colorScheme.primary;
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () => _finish(null),
+      },
+      child: TextField(
         key: const Key('hot-edit-field'),
         controller: _field,
+        focusNode: _focus,
         autofocus: true,
         maxLength: 200,
-        decoration: const InputDecoration(counterText: ''),
-        onSubmitted: (v) => Navigator.pop(context, v),
+        style: widget.style,
+        textInputAction: TextInputAction.done,
+        onSubmitted: _finish,
+        onTapOutside: (_) => _focus.unfocus(),
+        decoration: InputDecoration(
+          counterText: '',
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 6,
+          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: accent, width: 1.5),
+          ),
+          helperText: 'Enter to save · Esc to cancel',
+          helperStyle: const TextStyle(fontSize: 11),
+        ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _field.text),
-          child: const Text('Save'),
-        ),
-      ],
     );
   }
 }
@@ -384,9 +419,21 @@ class _InProgressTile extends StatefulWidget {
 class _InProgressTileState extends State<_InProgressTile> {
   bool _completing = false;
   bool _hover = false;
+  bool _editing = false;
+
+  void _startEditing() => setState(() => _editing = true);
+
+  void _finishEditing(String? text) {
+    setState(() => _editing = false);
+    if (text == null) return;
+    runHotAction(
+      context,
+      context.read<VaultController>().editHotTask(widget.task.id, text),
+    );
+  }
 
   Future<void> _complete() async {
-    if (_completing) return;
+    if (_completing || _editing) return;
     setState(() => _completing = true);
     final instant = MediaQuery.of(context).disableAnimations;
     final controller = context.read<VaultController>();
@@ -410,10 +457,23 @@ class _InProgressTileState extends State<_InProgressTile> {
         type: MaterialType.transparency,
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
-          onTap: _complete,
-          onSecondaryTapDown: (d) =>
-              showHotTaskMenu(context, widget.task, d.globalPosition),
-          onLongPress: () => showHotTaskMenu(context, widget.task, null),
+          onTap: _editing ? null : _complete,
+          onSecondaryTapDown: _editing
+              ? null
+              : (d) => showHotTaskMenu(
+                  context,
+                  widget.task,
+                  d.globalPosition,
+                  onEdit: _startEditing,
+                ),
+          onLongPress: _editing
+              ? null
+              : () => showHotTaskMenu(
+                  context,
+                  widget.task,
+                  null,
+                  onEdit: _startEditing,
+                ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 4, 4),
             child: Row(
@@ -438,23 +498,34 @@ class _InProgressTileState extends State<_InProgressTile> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: TweenAnimationBuilder<double>(
-                    tween: Tween(end: _completing ? 1 : 0),
-                    duration: duration,
-                    builder: (context, t, _) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Text(
-                        widget.task.text,
-                        style: TextStyle(
-                          fontSize: 15,
-                          color: Color.lerp(scheme.onSurface, muted, t),
-                          decoration: t > 0 ? TextDecoration.lineThrough : null,
-                          decorationColor: muted.withValues(alpha: t),
-                          decorationThickness: 2,
+                  child: _editing
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 1),
+                          child: _InlineTaskEditor(
+                            initial: widget.task.text,
+                            style: const TextStyle(fontSize: 15),
+                            onDone: _finishEditing,
+                          ),
+                        )
+                      : TweenAnimationBuilder<double>(
+                          tween: Tween(end: _completing ? 1 : 0),
+                          duration: duration,
+                          builder: (context, t, _) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Text(
+                              widget.task.text,
+                              style: TextStyle(
+                                fontSize: 15,
+                                color: Color.lerp(scheme.onSurface, muted, t),
+                                decoration: t > 0
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                                decorationColor: muted.withValues(alpha: t),
+                                decorationThickness: 2,
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  ),
                 ),
                 if (created != null)
                   Padding(
@@ -469,6 +540,7 @@ class _InProgressTileState extends State<_InProgressTile> {
                 Visibility(
                   visible:
                       !_completing &&
+                      !_editing &&
                       (_hover ||
                           MediaQuery.sizeOf(context).width < kMobileBreakpoint),
                   maintainSize: true,
@@ -547,24 +619,44 @@ class _DoneList extends StatelessWidget {
   }
 }
 
-class _DoneTile extends StatelessWidget {
+class _DoneTile extends StatefulWidget {
   const _DoneTile({super.key, required this.task, required this.highlight});
 
   final HotTask task;
   final bool highlight;
 
   @override
+  State<_DoneTile> createState() => _DoneTileState();
+}
+
+class _DoneTileState extends State<_DoneTile> {
+  bool _editing = false;
+
+  void _startEditing() => setState(() => _editing = true);
+
+  void _finishEditing(String? text) {
+    setState(() => _editing = false);
+    if (text == null) return;
+    runHotAction(
+      context,
+      context.read<VaultController>().editHotTask(widget.task.id, text),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final task = widget.task;
     final muted = Theme.of(
       context,
     ).colorScheme.onSurface.withValues(alpha: 0.55);
     final instant = MediaQuery.of(context).disableAnimations;
     final done = task.done!;
+    final created = task.created;
     final time =
         '${done.hour.toString().padLeft(2, '0')}:${done.minute.toString().padLeft(2, '0')}';
     return TweenAnimationBuilder<double>(
       // Plays once, when the just-completed task arrives.
-      tween: Tween(begin: highlight && !instant ? 1 : 0, end: 0),
+      tween: Tween(begin: widget.highlight && !instant ? 1 : 0, end: 0),
       duration: const Duration(milliseconds: 1200),
       builder: (context, glow, child) => Material(
         color: kTagGreen.withValues(alpha: 0.18 * glow),
@@ -573,17 +665,25 @@ class _DoneTile extends StatelessWidget {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
-        onTap: () => runHotAction(
-          context,
-          context.read<VaultController>().reopenHotTask(task.id),
-        ),
-        onSecondaryTapDown: (d) =>
-            showHotTaskMenu(context, task, d.globalPosition),
-        onLongPress: () => showHotTaskMenu(context, task, null),
+        onTap: _editing
+            ? null
+            : () => runHotAction(
+                context,
+                context.read<VaultController>().reopenHotTask(task.id),
+              ),
+        onSecondaryTapDown: _editing
+            ? null
+            : (d) => showHotTaskMenu(
+                context,
+                task,
+                d.globalPosition,
+                onEdit: _startEditing,
+              ),
+        onLongPress: _editing
+            ? null
+            : () => showHotTaskMenu(context, task, null, onEdit: _startEditing),
         child: Tooltip(
-          message: task.created == null
-              ? 'Back to in progress'
-              : 'Added ${formatHotStamp(task.created!)} · back to in progress',
+          message: 'Back to in progress',
           waitDuration: const Duration(milliseconds: 600),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
@@ -600,16 +700,30 @@ class _DoneTile extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    task.text,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: muted,
-                      decoration: TextDecoration.lineThrough,
-                      decorationColor: muted,
+                  child: _editing
+                      ? _InlineTaskEditor(
+                          initial: task.text,
+                          style: const TextStyle(fontSize: 14),
+                          onDone: _finishEditing,
+                        )
+                      : Text(
+                          task.text,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: muted,
+                            decoration: TextDecoration.lineThrough,
+                            decorationColor: muted,
+                          ),
+                        ),
+                ),
+                if (created != null && !_editing)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Text(
+                      'added ${hotAddedLabel(created, DateTime.now())}',
+                      style: TextStyle(fontSize: 11, color: muted),
                     ),
                   ),
-                ),
                 const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -767,11 +881,11 @@ String hotAddedLabel(DateTime added, DateTime now) {
   final time =
       '${added.hour.toString().padLeft(2, '0')}:'
       '${added.minute.toString().padLeft(2, '0')}';
-  return switch (dayLabel(added, now)) {
-    'Today' => time,
-    'Yesterday' => 'Yesterday $time',
-    _ => '${_months[added.month - 1]} ${added.day} $time',
-  };
+  final date = '${_months[added.month - 1]} ${added.day}';
+  // Always the date too — "09:15" alone is ambiguous once a list spans days.
+  // The year only appears when it is not the current one.
+  final year = added.year == now.year ? '' : ' ${added.year}';
+  return '$date$year, $time';
 }
 
 /// "Today", "Yesterday", else e.g. "Thu, Sep 18".

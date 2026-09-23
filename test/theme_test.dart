@@ -14,7 +14,44 @@ void main() {
     expect(ids.toSet().length, ids.length);
     expect(kThemeStyles.every((s) => s.label.isNotEmpty), isTrue);
     expect(ids, contains('lite2'));
+    expect(ids, contains('graphite'));
   });
+
+  test(
+    'Graphite is grey in both modes — neither near-white nor near-black',
+    () {
+      for (final dark in [false, true]) {
+        final theme = buildTheme(
+          styleId: 'graphite',
+          accentIndex: 0,
+          dark: dark,
+        );
+        for (final c in [
+          theme.scaffoldBackgroundColor,
+          theme.colorScheme.surface,
+        ]) {
+          final l = c.computeLuminance();
+          expect(l, greaterThan(0.03), reason: '$c too close to black');
+          expect(l, lessThan(0.7), reason: '$c too close to white');
+          // Grey: the channels stay within a few steps of each other.
+          final channels = [c.r, c.g, c.b];
+          final spread =
+              channels.reduce((a, b) => a > b ? a : b) -
+              channels.reduce((a, b) => a < b ? a : b);
+          expect(spread, lessThan(0.06), reason: '$c is not neutral');
+        }
+      }
+      // Keeps the accent the user picked.
+      expect(
+        buildTheme(
+          styleId: 'graphite',
+          accentIndex: 4,
+          dark: false,
+        ).colorScheme.primary,
+        kAccents[4],
+      );
+    },
+  );
 
   test('an unknown style id falls back instead of throwing', () {
     expect(styleById('no-such-style').id, kThemeStyles.first.id);

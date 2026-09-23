@@ -103,6 +103,16 @@ const List<ThemeStyle> kThemeStyles = [
     lightSurface: Color(0xFFF8F8F7),
     flat: true,
   ),
+  // "Graphite": grey in both modes — neither the near-white nor near-black
+  // every other style uses, but a real mid grey, lighter or darker.
+  ThemeStyle(
+    id: 'graphite',
+    label: 'Graphite',
+    darkScaffold: Color(0xFF3B3E43),
+    darkSurface: Color(0xFF474A50),
+    lightScaffold: Color(0xFFB9BCC0),
+    lightSurface: Color(0xFFC9CCD0),
+  ),
   // "Lite 2": the calm grey-and-orange of a Ubuntu desktop window. Keeps
   // colour (unlike Lite) but shrinks every control except the Hot tasks
   // flame, squares off the cards and drops the decorative motion.
