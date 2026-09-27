@@ -69,6 +69,22 @@ void main() {
       expect(controller.isPinned('Plan'), isFalse);
     });
 
+    test('links to the note follow the new title', () async {
+      File('${tmp.path}/Links.md').writeAsStringSync(
+        '# Links\n[[Plan]], [[plan|the plan]], [[Plan#Goals]], [[Planet]]',
+      );
+      await controller.reload();
+      final plan = controller.notes.firstWhere((n) => n.title == 'Plan');
+
+      await controller.renameNote(plan, 'Roadmap');
+
+      expect(
+        File('${tmp.path}/Links.md').readAsStringSync(),
+        '# Links\n[[Roadmap]], [[Roadmap|the plan]], [[Roadmap#Goals]], '
+        '[[Planet]]',
+      );
+    });
+
     test('a taken title gets a suffix instead of replacing the note', () async {
       final plan = controller.notes.firstWhere((n) => n.title == 'Plan');
 

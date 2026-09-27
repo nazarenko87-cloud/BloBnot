@@ -535,7 +535,7 @@ class VaultController extends ChangeNotifier {
   /// Rename a note (its file). Returns the renamed note, or null when
   /// [wanted] is empty or already the note's title. A leading `# Old title`
   /// heading is renamed too, and pin/reminder/glyph/recent records follow
-  /// the note. Wiki-links in other notes are left as they are.
+  /// the note, and `[[links]]` to it in other notes are rewritten.
   Future<Note?> renameNote(Note note, String wanted) async {
     await _flushPendingSave();
     final latest = _notes.firstWhere(
@@ -555,12 +555,36 @@ class VaultController extends ChangeNotifier {
       renamed = await _storage!.write(renamed.copyWith(body: lines.join('\n')));
     }
     _moveNoteBookkeeping(latest, renamed);
+    await _relinkNotes(latest.title, title, skipPath: renamed.path);
     await _pinnedStore?.save(_pinned);
     await _reminderStore?.save(_reminders);
     await _glyphStore?.saveOverrides(_glyphOverrides);
     unawaited(_recentStore?.save(_recent));
     notifyListeners();
     return renamed;
+  }
+
+  /// Point `[[from]]`, `[[from|alias]]` and `[[from#heading]]` at [to] in
+  /// every note that links there (matched case-insensitively, as links are).
+  Future<void> _relinkNotes(
+    String from,
+    String to, {
+    required String skipPath,
+  }) async {
+    final link = RegExp(
+      r'\[\[\s*' + RegExp.escape(from) + r'\s*(?=[\]|#])',
+      caseSensitive: false,
+    );
+    final target = from.toLowerCase();
+    for (var i = 0; i < _notes.length; i++) {
+      final n = _notes[i];
+      if (n.path == skipPath) continue;
+      if (!n.outgoingLinks.any((l) => l.toLowerCase() == target)) continue;
+      final body = n.body.replaceAll(link, '[[$to');
+      if (body == n.body) continue;
+      _notes[i] = await _storage!.write(n.copyWith(body: body));
+      if (_current?.path == n.path) _current = _notes[i];
+    }
   }
 
   void _moveNoteBookkeeping(Note from, Note to) {
