@@ -5,6 +5,9 @@ import '../main.dart' show kAppVersion;
 import '../models/note.dart';
 import '../state/vault_controller.dart';
 import 'glyph_avatar.dart';
+import 'hot_tasks_view.dart' show hotAddedLabel;
+import 'inline_editor.dart';
+import 'note_dialogs.dart';
 import 'pulse.dart';
 import 'theme.dart';
 
@@ -56,6 +59,10 @@ class _NoteListState extends State<NoteList> {
   String _query = '';
   _Sort _sort = _Sort.name;
   String? _glyphFilter;
+
+  /// The project or note (by path) whose name is being edited in place.
+  String? _renamingProject;
+  String? _renamingNote;
 
   @override
   void dispose() {
@@ -284,17 +291,26 @@ class _NoteListState extends State<NoteList> {
                         ),
                       ),
                       tilePadding: const EdgeInsets.symmetric(horizontal: 12),
-                      title: Text(
-                        '${e.key.toUpperCase()}   ${e.value.length}',
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.6,
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.5),
-                        ),
-                      ),
+                      title: _renamingProject == e.key
+                          ? InlineTextEditor(
+                              initial: e.key,
+                              fieldKey: const Key('rename-project-field'),
+                              helperText: null,
+                              maxLength: 120,
+                              style: const TextStyle(fontSize: 13),
+                              onDone: (v) => _finishProjectRename(e.key, v),
+                            )
+                          : Text(
+                              '${e.key.toUpperCase()}   ${e.value.length}',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.6,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withValues(alpha: 0.5),
+                              ),
+                            ),
                       trailing: PopupMenuButton<String>(
                         tooltip: 'Project menu',
                         style: _compactButton,
@@ -302,6 +318,7 @@ class _NoteListState extends State<NoteList> {
                         onSelected: (v) => switch (v) {
                           'add_note' => widget.onNewInProject(e.key),
                           'color' => _pickColor(context, e.key),
+                          'rename' => setState(() => _renamingProject = e.key),
                           'delete' => _deleteProject(
                             context,
                             e.key,
@@ -314,6 +331,7 @@ class _NoteListState extends State<NoteList> {
                             value: 'add_note',
                             child: Text('Add note'),
                           ),
+                          PopupMenuItem(value: 'rename', child: Text('Rename')),
                           PopupMenuItem(value: 'color', child: Text('Colour…')),
                           PopupMenuItem(
                             value: 'delete',
@@ -345,7 +363,7 @@ class _NoteListState extends State<NoteList> {
                   context,
                 ).colorScheme.onSurface.withValues(alpha: 0.7),
               ),
-              onPressed: () => _showArchive(context),
+              onPressed: () => showArchiveDialog(context),
             ),
           ),
         ),
@@ -371,57 +389,43 @@ class _NoteListState extends State<NoteList> {
         controller.select(note);
         widget.onNoteOpened?.call();
       },
+      renaming: _renamingNote == note.path,
+      onRename: () => setState(() => _renamingNote = note.path),
+      onRenameDone: (v) => _finishNoteRename(note, v),
       onPin: () => controller.togglePin(note.title),
       onArchive: () => controller.archiveNote(note),
-      onSetGlyph: () => _setGlyph(context, note),
-      onDelete: () => _confirmDelete(context, note),
+      onSetGlyph: () => showGlyphPicker(context, note),
+      onDelete: () => confirmDeleteNote(context, note),
     );
   }
 
-  Future<void> _setGlyph(BuildContext context, Note note) async {
+  Future<void> _finishProjectRename(String project, String? name) async {
+    setState(() => _renamingProject = null);
+    if (name == null || name.trim() == project) return;
     final controller = context.read<VaultController>();
-    final ctrl = TextEditingController(text: controller.glyphFor(note) ?? '');
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Glyph for "${note.title}"'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: ctrl,
-              autofocus: true,
-              maxLength: 4,
-              decoration: const InputDecoration(
-                hintText: 'Paste an emoji, e.g. 🚀',
-              ),
-            ),
-            Wrap(
-              spacing: 6,
-              children: [
-                for (final e in ['📌', '🚀', '💡', '📞', '💰', '🔥', '⭐', '🧠'])
-                  InkWell(
-                    onTap: () => Navigator.pop(context, e),
-                    child: Text(e, style: const TextStyle(fontSize: 22)),
-                  ),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, ''),
-            child: const Text('Clear'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    if (result == null) return;
-    await controller.setNoteGlyph(note.title, result.isEmpty ? null : result);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      final ok = await controller.renameProject(project, name);
+      if (!ok) {
+        messenger?.showSnackBar(
+          SnackBar(content: Text('Could not rename: "$name" is taken')),
+        );
+      }
+    } on Exception catch (e) {
+      messenger?.showSnackBar(SnackBar(content: Text('Rename failed: $e')));
+    }
+  }
+
+  Future<void> _finishNoteRename(Note note, String? name) async {
+    setState(() => _renamingNote = null);
+    if (name == null || name.trim() == note.title) return;
+    final controller = context.read<VaultController>();
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      await controller.renameNote(note, name);
+    } on Exception catch (e) {
+      messenger?.showSnackBar(SnackBar(content: Text('Rename failed: $e')));
+    }
   }
 
   Future<void> _deleteProject(
@@ -520,83 +524,6 @@ class _NoteListState extends State<NoteList> {
     if (name == null || name.isEmpty || !context.mounted) return;
     await context.read<VaultController>().createProject(name);
   }
-
-  Future<void> _showArchive(BuildContext context) async {
-    final controller = context.read<VaultController>();
-    final archived = await controller.loadArchived();
-    if (!context.mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Archive (${archived.length})'),
-        content: SizedBox(
-          width: 420,
-          child: archived.isEmpty
-              ? const Text('Archive is empty.')
-              : ListView(
-                  shrinkWrap: true,
-                  children: [
-                    for (final note in archived)
-                      ListTile(
-                        dense: true,
-                        title: Text(note.title),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: 'Restore',
-                              icon: const Icon(Icons.unarchive, size: 18),
-                              onPressed: () async {
-                                await controller.restoreArchived(note);
-                                if (context.mounted) Navigator.pop(context);
-                              },
-                            ),
-                            IconButton(
-                              tooltip: 'Delete forever',
-                              icon: const Icon(Icons.delete_forever, size: 18),
-                              onPressed: () async {
-                                await controller.deleteArchivedForever(note);
-                                if (context.mounted) Navigator.pop(context);
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _confirmDelete(BuildContext context, Note note) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete "${note.title}"?'),
-        content: const Text('The file will be removed from the vault.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true && context.mounted) {
-      await context.read<VaultController>().deleteNote(note);
-    }
-  }
 }
 
 class _RecentRow extends StatelessWidget {
@@ -672,6 +599,9 @@ class _NoteTile extends StatelessWidget {
     required this.glyphStyle,
     required this.onGlyphTap,
     required this.onTap,
+    required this.renaming,
+    required this.onRename,
+    required this.onRenameDone,
     required this.onPin,
     required this.onArchive,
     required this.onSetGlyph,
@@ -686,6 +616,9 @@ class _NoteTile extends StatelessWidget {
   final String glyphStyle;
   final VoidCallback? onGlyphTap;
   final VoidCallback onTap;
+  final bool renaming;
+  final VoidCallback onRename;
+  final ValueChanged<String?> onRenameDone;
   final VoidCallback onPin;
   final VoidCallback onArchive;
   final VoidCallback onSetGlyph;
@@ -709,28 +642,51 @@ class _NoteTile extends StatelessWidget {
           pulse: hasReminder,
           onTap: onGlyphTap,
         ),
-        title: Row(
-          children: [
-            Flexible(
-              child: Text(
-                note.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+        title: renaming
+            ? InlineTextEditor(
+                initial: note.title,
+                fieldKey: const Key('rename-note-field'),
+                helperText: null,
+                maxLength: 120,
+                onDone: onRenameDone,
+              )
+            : Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      note.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (pinned) ...[
+                    const SizedBox(width: 4),
+                    Icon(Icons.push_pin, size: 12, color: accent),
+                  ],
+                  if (hasReminder) ...[
+                    const SizedBox(width: 4),
+                    Icon(Icons.notifications_active, size: 13, color: accent),
+                  ],
+                ],
               ),
-            ),
-            if (pinned) ...[
-              const SizedBox(width: 4),
-              Icon(Icons.push_pin, size: 12, color: accent),
-            ],
-            if (hasReminder) ...[
-              const SizedBox(width: 4),
-              Icon(Icons.notifications_active, size: 13, color: accent),
-            ],
-          ],
-        ),
+        // Last change, small — the same "Sep 27, 14:05" as hot tasks.
+        subtitle: renaming
+            ? null
+            : Text(
+                hotAddedLabel(note.modified, DateTime.now()),
+                key: Key('note-stamp-${note.title}'),
+                style: TextStyle(
+                  fontSize: 9.5,
+                  height: 1.1,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.45),
+                ),
+              ),
         trailing: PopupMenuButton<String>(
           icon: const Icon(Icons.more_horiz, size: 18),
           onSelected: (v) => switch (v) {
+            'rename' => onRename(),
             'pin' => onPin(),
             'glyph' => onSetGlyph(),
             'archive' => onArchive(),
@@ -738,6 +694,7 @@ class _NoteTile extends StatelessWidget {
             _ => null,
           },
           itemBuilder: (context) => [
+            const PopupMenuItem(value: 'rename', child: Text('Rename')),
             PopupMenuItem(
               value: 'pin',
               child: Text(pinned ? 'Unpin' : 'Pin to top'),

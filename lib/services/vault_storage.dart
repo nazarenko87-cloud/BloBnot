@@ -85,6 +85,12 @@ class VaultStorage implements VaultBackend {
   @override
   Future<Note> rename(Note note, String newTitle) async {
     final newPath = p.join(p.dirname(note.path), '$newTitle.md');
+    // A plain rename would silently replace a same-named note on POSIX.
+    // Case-only renames are fine: on Windows it is the same file.
+    if (newPath.toLowerCase() != note.path.toLowerCase() &&
+        File(newPath).existsSync()) {
+      throw FileSystemException('A note with this name exists', newPath);
+    }
     await File(note.path).rename(newPath);
     return note.copyWith(path: newPath, title: newTitle);
   }
@@ -151,6 +157,15 @@ class VaultStorage implements VaultBackend {
       }
     }
     await dir.delete(recursive: true);
+  }
+
+  @override
+  Future<void> renameProject(String name, String newName) async {
+    final dest = Directory(p.join(root, newName));
+    if (dest.existsSync()) {
+      throw FileSystemException('A project with this name exists', dest.path);
+    }
+    await Directory(p.join(root, name)).rename(dest.path);
   }
 
   /// Project folder a note belongs to ('' when at the vault root).

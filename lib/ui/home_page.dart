@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../services/vault_picker.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +18,8 @@ import 'calculator_dialog.dart';
 import 'hot_tasks_view.dart';
 import 'table_view.dart';
 import 'lock_screen.dart';
+import 'mobile/mobile_home.dart';
+import 'mobile/mobile_pages.dart';
 import 'note_list.dart';
 import 'open_tabs.dart';
 import 'settings_dialog.dart';
@@ -69,7 +73,48 @@ class HomePage extends StatefulWidget {
 /// once. The graph is separate: a side panel on desktop.
 enum _MainView { notes, hot, dashboard, table }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
+  /// A phone keeps the app in memory for days, so without this, changes
+  /// made on another device (hot tasks, notes) would only show after a manual
+  /// refresh. A short trip away — the share sheet, a notification — does not
+  /// warrant re-reading a cloud folder.
+  static const _reloadAfterAway = Duration(seconds: 10);
+  DateTime? _backgroundedAt;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final controller = context.read<VaultController>();
+    switch (state) {
+      case AppLifecycleState.paused || AppLifecycleState.hidden:
+        _backgroundedAt ??= DateTime.now();
+        // Android may kill a paused app before the typing debounce fires.
+        unawaited(controller.flushPendingSave());
+      case AppLifecycleState.resumed:
+        final away = _backgroundedAt;
+        _backgroundedAt = null;
+        if (away != null &&
+            controller.hasVault &&
+            !controller.locked &&
+            DateTime.now().difference(away) >= _reloadAfterAway) {
+          unawaited(controller.reload());
+        }
+      case AppLifecycleState.inactive || AppLifecycleState.detached:
+        break;
+    }
+  }
+
   bool _showList = true;
   _MainView _view = _MainView.notes;
 
@@ -109,7 +154,7 @@ class _HomePageState extends State<HomePage> {
     }
 
     if (MediaQuery.sizeOf(context).width < kMobileBreakpoint) {
-      return _mobileScaffold(context, controller);
+      return _mobileHome(context);
     }
 
     return CallbackShortcuts(
@@ -333,247 +378,26 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /// Single-pane phone layout: the note editor is the whole screen; every
-  /// other feature (notes list, dashboard, graph, settings, …) lives behind
-  /// the drawer so it never competes with the writing surface for space.
-  Widget _mobileScaffold(BuildContext context, VaultController controller) {
-    final hasExternalFiles = context
-        .watch<ExternalFilesController>()
-        .hasOpenFiles;
-    final note = controller.current;
+  /// Phone layout: a Keep-style card list (see [MobileHome]); notes and
+  /// every other view open as their own pages with a back arrow.
+  Widget _mobileHome(BuildContext context) => MobileHome(
+    onOpenFile: () => _openExternalFileMobile(context),
+    onAbout: () => _showAbout(context),
+  );
 
-    String title;
-    if (_showHot) {
-      title = 'Hot tasks';
-    } else if (_showTable) {
-      title = 'Table';
-    } else if (_showDashboard) {
-      title = 'Dashboard';
-    } else if (_showGraph) {
-      title = 'Graph';
-    } else if (hasExternalFiles) {
-      title = context.watch<ExternalFilesController>().active?.title ?? 'File';
-    } else {
-      title = note?.title ?? 'BloBnot';
-    }
-
-    Widget body;
-    if (_showHot) {
-      body = const Padding(padding: EdgeInsets.all(8), child: HotTasksView());
-    } else if (_showTable) {
-      body = Padding(
-        padding: const EdgeInsets.all(8),
-        child: NoteTableView(onOpenNote: _showNotes),
-      );
-    } else if (_showDashboard) {
-      body = DashboardView(onOpenNote: _showNotes);
-    } else if (_showGraph) {
-      body = GraphView(onHide: () => setState(() => _showGraph = false));
-    } else if (hasExternalFiles) {
-      body = const Column(
+  /// On a phone an opened file gets its own page instead of the editor area.
+  Future<void> _openExternalFileMobile(BuildContext context) async {
+    await _openExternalFile(context);
+    if (!context.mounted) return;
+    if (!context.read<ExternalFilesController>().hasOpenFiles) return;
+    await pushMobilePage(
+      context,
+      title: 'Files',
+      body: const Column(
         children: [
           ExternalFileTabs(),
           Expanded(child: ExternalFileViewer()),
         ],
-      );
-    } else {
-      body = const EditorPane();
-    }
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-        actions: [
-          PopupMenuButton<String>(
-            tooltip: 'Menu',
-            onSelected: (v) => switch (v) {
-              'new' => _newNote(context).then((_) {
-                if (mounted) _showNotes();
-              }),
-              'refresh' => _refresh(context),
-              'open_file' => _openExternalFile(context),
-              'calculator' => showCalculatorDialog(context),
-              'settings' => showSettingsDialog(context),
-              'about' => _showAbout(context),
-              _ => null,
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: 'new',
-                child: ListTile(
-                  leading: Icon(Icons.add),
-                  title: Text('New note'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'refresh',
-                child: ListTile(
-                  leading: Icon(Icons.refresh),
-                  title: Text('Refresh from disk'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'open_file',
-                child: ListTile(
-                  leading: Icon(Icons.file_open_outlined),
-                  title: Text('Open file'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'calculator',
-                child: ListTile(
-                  leading: Icon(Icons.calculate_outlined),
-                  title: Text('Calculator'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'settings',
-                child: ListTile(
-                  leading: Icon(Icons.settings_outlined),
-                  title: Text('Settings'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'about',
-                child: ListTile(
-                  leading: Icon(Icons.info_outline),
-                  title: Text('About'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-      drawer: _mobileDrawer(context),
-      body: body,
-    );
-  }
-
-  Widget _mobileDrawer(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-    Widget navItem(
-      IconData icon,
-      String label,
-      bool active,
-      VoidCallback onTap,
-    ) => ListTile(
-      leading: Icon(icon, color: active ? accent : null),
-      title: Text(
-        label,
-        style: TextStyle(
-          color: active ? accent : null,
-          fontWeight: active ? FontWeight.w700 : null,
-        ),
-      ),
-      selected: active,
-      onTap: () {
-        Navigator.pop(context);
-        onTap();
-      },
-    );
-
-    return Drawer(
-      child: SafeArea(
-        child: Column(
-          children: [
-            DrawerHeader(
-              margin: EdgeInsets.zero,
-              child: Row(
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: accent,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      'B',
-                      style: TextStyle(
-                        color: onAccent(accent),
-                        fontWeight: FontWeight.w800,
-                        fontSize: 18,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  const Text(
-                    'BloBnot',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                  ),
-                ],
-              ),
-            ),
-            ListTile(
-              key: const Key('drawer-hot'),
-              leading: HotBadge(
-                count: context.watch<VaultController>().hotInProgressCount,
-                child: const Icon(
-                  Icons.local_fire_department,
-                  color: kHotColor,
-                  size: 28,
-                ),
-              ),
-              title: Text(
-                'Hot tasks',
-                style: TextStyle(
-                  fontWeight: _showHot ? FontWeight.w700 : FontWeight.w600,
-                ),
-              ),
-              selected: _showHot,
-              onTap: () {
-                Navigator.pop(context);
-                _go(_MainView.hot);
-              },
-            ),
-            navItem(
-              Icons.description_outlined,
-              'Notes',
-              _view == _MainView.notes && !_showGraph,
-              _showNotes,
-            ),
-            navItem(
-              Icons.dashboard_outlined,
-              'Dashboard',
-              _showDashboard,
-              () => _go(_MainView.dashboard),
-            ),
-            navItem(
-              Icons.table_chart_outlined,
-              'Table',
-              _showTable,
-              () => _go(_MainView.table),
-            ),
-            navItem(
-              Icons.hub_outlined,
-              'Graph',
-              _showGraph && _view == _MainView.notes,
-              () => setState(() {
-                _view = _MainView.notes;
-                _showGraph = true;
-              }),
-            ),
-            navItem(
-              Icons.bolt,
-              'Quick switcher',
-              false,
-              () => _quickSwitcher(context),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: NoteList(
-                onNew: () => _newNote(context),
-                onNewInProject: (project) =>
-                    _newNote(context, initialProject: project),
-                onNoteOpened: () {
-                  Navigator.pop(context);
-                  _showNotes();
-                },
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

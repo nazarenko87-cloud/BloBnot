@@ -128,9 +128,13 @@ class _EditorPaneState extends State<EditorPane> {
     _commitText();
   }
 
+  int _loadedReload = 0;
+
   /// Sync the text field when the selected note changes (but not on our own
-  /// edits, which would move the cursor).
-  void _syncFrom(Note? note) {
+  /// edits, which would move the cursor) — or when the vault was re-read and
+  /// the file may hold a newer copy from another device. A reload writes any
+  /// pending edit first, so taking the file's text then loses nothing.
+  void _syncFrom(Note? note, int reloadCount, {bool dirty = false}) {
     if (note == null) {
       _textController.clear();
       _loadedPath = null;
@@ -141,6 +145,19 @@ class _EditorPaneState extends State<EditorPane> {
       _textController.text = note.body;
       _previewBody = note.body;
       _loadedPath = note.path;
+      _loadedReload = reloadCount;
+    } else if (reloadCount != _loadedReload && !dirty) {
+      // While an edit is buffered the editor holds the newer text (typed
+      // during the reload); its pending save will write it out.
+      _loadedReload = reloadCount;
+      if (_textController.text != note.body) {
+        final caret = _textController.selection.baseOffset;
+        _textController.text = note.body;
+        _textController.selection = TextSelection.collapsed(
+          offset: caret.clamp(0, note.body.length),
+        );
+        _previewBody = note.body;
+      }
     }
   }
 
@@ -148,7 +165,7 @@ class _EditorPaneState extends State<EditorPane> {
   Widget build(BuildContext context) {
     final controller = context.watch<VaultController>();
     final note = controller.current;
-    _syncFrom(note);
+    _syncFrom(note, controller.reloadCount, dirty: controller.isDirty);
 
     if (note == null) {
       return const Center(child: Text('No note selected'));
@@ -623,24 +640,28 @@ class _EditorPaneState extends State<EditorPane> {
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerRight,
               child: SegmentedButton<ViewMode>(
-                segments: const [
-                  ButtonSegment(
+                // Side by side has no room on a phone.
+                segments: [
+                  const ButtonSegment(
                     value: ViewMode.edit,
                     icon: Icon(Icons.edit),
                     tooltip: 'Edit',
                   ),
-                  ButtonSegment(
-                    value: ViewMode.split,
-                    icon: Icon(Icons.vertical_split),
-                    tooltip: 'Edit and preview side by side',
-                  ),
-                  ButtonSegment(
+                  if (!isMobile)
+                    const ButtonSegment(
+                      value: ViewMode.split,
+                      icon: Icon(Icons.vertical_split),
+                      tooltip: 'Edit and preview side by side',
+                    ),
+                  const ButtonSegment(
                     value: ViewMode.preview,
                     icon: Icon(Icons.visibility),
                     tooltip: 'Preview',
                   ),
                 ],
-                selected: {_mode},
+                selected: {
+                  isMobile && _mode == ViewMode.split ? ViewMode.edit : _mode,
+                },
                 showSelectedIcon: false,
                 onSelectionChanged: (s) => setState(() => _mode = s.first),
               ),
@@ -819,7 +840,9 @@ class _EditorPaneState extends State<EditorPane> {
   }
 
   Widget _body(BuildContext context, Note note) {
-    return switch (_mode) {
+    final phone = MediaQuery.sizeOf(context).width < kMobileBreakpoint;
+    final mode = phone && _mode == ViewMode.split ? ViewMode.edit : _mode;
+    return switch (mode) {
       ViewMode.edit => _editor(context),
       ViewMode.preview => _preview(note),
       ViewMode.split => Row(

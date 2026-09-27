@@ -330,9 +330,20 @@ class VaultController extends ChangeNotifier {
   /// Re-reads the vault from disk — picks up notes changed outside the app
   /// (e.g. edited directly on disk) without restarting BloBnot. Flushes any
   /// pending debounced save first so in-progress typing isn't discarded.
+  /// Bumped by every [reload], so an open editor knows the note under it may
+  /// have been replaced by a newer copy from disk.
+  int _reloadCount = 0;
+  int get reloadCount => _reloadCount;
+
+  /// Writes a buffered edit now instead of after the typing pause — for when
+  /// the app goes to the background, where Android may stop it before the
+  /// debounce timer fires.
+  Future<void> flushPendingSave() => _flushPendingSave();
+
   Future<void> reload() async {
     if (_storage == null) return;
     await _flushPendingSave();
+    _reloadCount++;
     try {
       _projects = await _storage!.listProjects();
       _notes = await _storage!.loadNotes();
@@ -446,15 +457,39 @@ class VaultController extends ChangeNotifier {
   /// Templates are `.md` files in `{vault}/_templates/`.
   Future<List<Note>> loadTemplates() => _storage!.loadTemplates();
 
+  /// A title that can be a file name and does not clash with a note already
+  /// in [subfolder]: characters no file system accepts are replaced, and a
+  /// clash gets " (1)", " (2)"… Clashes compare case-insensitively, because
+  /// Windows and Google Drive treat "Plan.md" and "plan.md" as one file.
+  String uniqueNoteTitle(String wanted, {String? subfolder}) {
+    // A trailing dot or space is dropped by Windows, making another clash.
+    var base = _cleanTitle(wanted);
+    if (base.isEmpty) base = 'Untitled';
+    final folder = subfolder ?? '';
+    final taken = {
+      for (final n in _notes)
+        if ((_storage?.projectOf(n) ?? '') == folder) n.title.toLowerCase(),
+    };
+    var title = base;
+    var i = 1;
+    while (taken.contains(title.toLowerCase())) {
+      title = '$base (${i++})';
+    }
+    return title;
+  }
+
+  /// Creates a note. The title is made unique first — writing to an existing
+  /// title's file would silently replace that note.
   Future<Note> createNote(
     String title, {
     String? subfolder,
     String? body,
   }) async {
+    final unique = uniqueNoteTitle(title, subfolder: subfolder);
     final note = await _storage!.create(
-      title,
+      unique,
       subfolder: subfolder,
-      body: body,
+      body: body ?? (unique == title ? null : '# $unique\n\n'),
     );
     _notes.add(note);
     _notes.sort((a, b) => a.titleLower.compareTo(b.titleLower));
@@ -496,6 +531,96 @@ class VaultController extends ChangeNotifier {
     _projects = await _storage!.listProjects();
     notifyListeners();
   }
+
+  /// Rename a note (its file). Returns the renamed note, or null when
+  /// [wanted] is empty or already the note's title. A leading `# Old title`
+  /// heading is renamed too, and pin/reminder/glyph/recent records follow
+  /// the note. Wiki-links in other notes are left as they are.
+  Future<Note?> renameNote(Note note, String wanted) async {
+    await _flushPendingSave();
+    final latest = _notes.firstWhere(
+      (n) => n.path == note.path,
+      orElse: () => note,
+    );
+    final cleaned = _cleanTitle(wanted);
+    if (cleaned.isEmpty || cleaned == latest.title) return null;
+    final folder = _storage!.projectOf(latest);
+    final title = cleaned.toLowerCase() == latest.title.toLowerCase()
+        ? cleaned
+        : uniqueNoteTitle(cleaned, subfolder: folder);
+    var renamed = await _storage!.rename(latest, title);
+    final lines = renamed.body.split('\n');
+    if (lines.first.trim() == '# ${latest.title}') {
+      lines[0] = '# $title';
+      renamed = await _storage!.write(renamed.copyWith(body: lines.join('\n')));
+    }
+    _moveNoteBookkeeping(latest, renamed);
+    await _pinnedStore?.save(_pinned);
+    await _reminderStore?.save(_reminders);
+    await _glyphStore?.saveOverrides(_glyphOverrides);
+    unawaited(_recentStore?.save(_recent));
+    notifyListeners();
+    return renamed;
+  }
+
+  void _moveNoteBookkeeping(Note from, Note to) {
+    final i = _notes.indexWhere((n) => n.path == from.path);
+    if (i >= 0) _notes[i] = to;
+    _notes.sort((a, b) => a.titleLower.compareTo(b.titleLower));
+    if (_current?.path == from.path) _current = to;
+    final tab = _openPaths.indexOf(from.path);
+    if (tab >= 0) _openPaths[tab] = to.path;
+    final old = from.title;
+    final now = to.title;
+    final r = _recent.indexOf(old);
+    if (r >= 0) _recent[r] = now;
+    if (_pinned.remove(old)) _pinned.add(now);
+    final due = _reminders.remove(old);
+    if (due != null) _reminders[now] = due;
+    final glyph = _glyphOverrides.remove(old);
+    if (glyph != null) _glyphOverrides[now] = glyph;
+  }
+
+  /// Rename a project folder. Returns false when the name is empty,
+  /// unchanged or taken by another project.
+  Future<bool> renameProject(String name, String wanted) async {
+    final newName = _cleanTitle(wanted);
+    if (newName.isEmpty || newName == name) return false;
+    final clash = _projects.any(
+      (p) => p != name && p.toLowerCase() == newName.toLowerCase(),
+    );
+    if (clash) return false;
+    await _flushPendingSave();
+    final currentRel = _current == null ? null : _storage!.projectOf(_current!);
+    final currentTitle = _current?.title;
+    await _storage!.renameProject(name, newName);
+    final colour = _projectColors.remove(name);
+    if (colour != null) _projectColors[newName] = colour;
+    final order = _projectOrder.indexOf(name);
+    if (order >= 0) _projectOrder[order] = newName;
+    await _projectColorsStore?.save(_projectColors);
+    await _projectOrderStore?.save(_projectOrder);
+    _openPaths.clear();
+    await reload();
+    if (currentRel == name) {
+      for (final n in _notes) {
+        if (n.title == currentTitle && _storage!.projectOf(n) == newName) {
+          _current = n;
+          _openPaths.add(n.path);
+          break;
+        }
+      }
+      notifyListeners();
+    }
+    return true;
+  }
+
+  /// A title/folder name that is safe as a file name on every platform.
+  static String _cleanTitle(String wanted) => wanted
+      .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1f]'), '-')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim()
+      .replaceAll(RegExp(r'[. ]+$'), '');
 
   /// Delete a project folder; its notes go to the archive first.
   Future<void> deleteProject(String name) async {

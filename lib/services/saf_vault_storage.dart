@@ -118,6 +118,10 @@ class SafVaultStorage implements VaultBackend {
   Future<void> createProject(String name) => SafChannel.mkdir(treeUri, name);
 
   @override
+  Future<void> renameProject(String name, String newName) =>
+      SafChannel.rename(treeUri, name, newName);
+
+  @override
   Future<void> deleteProject(String name) async {
     // Archive the project's notes first (soft delete), then drop the folder.
     final all = await SafChannel.listMarkdown(treeUri);

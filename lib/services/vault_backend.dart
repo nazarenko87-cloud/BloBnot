@@ -27,6 +27,9 @@ abstract interface class VaultBackend {
   Future<void> createProject(String name);
   Future<void> deleteProject(String name);
 
+  /// Rename a project folder; its notes move with it.
+  Future<void> renameProject(String name, String newName);
+
   /// Project folder a note belongs to ('' when at the vault root).
   String projectOf(Note note);
 
