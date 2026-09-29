@@ -510,6 +510,10 @@ class _EditorPaneState extends State<EditorPane> {
     controller.editCurrentBody(_textController.text);
   }
 
+  // Reminder bell and Edit/Split/Preview: 15% over Material's 24 and 18.
+  static const double _headerIconSize = 27.6;
+  static const double _modeIconSize = 20.7;
+
   Widget _header(BuildContext context, VaultController controller, Note note) {
     final reminder = controller.reminderFor(note.title);
     // On mobile the note title already sits in the AppBar — showing it again
@@ -599,6 +603,7 @@ class _EditorPaneState extends State<EditorPane> {
           ),
           PopupMenuButton<String>(
             tooltip: 'Reminders',
+            iconSize: _headerIconSize,
             icon: Icon(
               reminder == null
                   ? Icons.notifications_none
@@ -635,7 +640,7 @@ class _EditorPaneState extends State<EditorPane> {
           ),
           // Bounded so the FittedBox actually scales it down on narrow cards.
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 132),
+            constraints: const BoxConstraints(maxWidth: 152),
             child: FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerRight,
@@ -663,6 +668,10 @@ class _EditorPaneState extends State<EditorPane> {
                   isMobile && _mode == ViewMode.split ? ViewMode.edit : _mode,
                 },
                 showSelectedIcon: false,
+                style: const ButtonStyle(
+                  iconSize: WidgetStatePropertyAll(_modeIconSize),
+                  minimumSize: WidgetStatePropertyAll(Size(0, 46)),
+                ),
                 onSelectionChanged: (s) => setState(() => _mode = s.first),
               ),
             ),
