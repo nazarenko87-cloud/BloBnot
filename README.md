@@ -34,7 +34,8 @@ lives outside the app folder, so it survives updates.
 - **Reminders** — per-note, inline `{{remind:}}` tags, and standalone calendar events.
 - **Attachments** — files live in `attachments/` next to your notes.
 - **Themes** — dark and light in several colour styles, including a monochrome
-  "Newsprint" Lite, an Ubuntu-styled Lite 2, and a mid-grey Graphite.
+  "Newsprint" Lite, an Ubuntu-styled Lite 2, a mid-grey Graphite and a messenger-like
+  White Blue.
 - **Phone layout** — on Android the notes are Keep-style cards with search, pinned notes on
   top and a **+** for a quick note; a note opens full screen with a back arrow, and the app
   re-reads the vault when you come back to it, so changes from the PC show up on their own.
@@ -111,7 +112,7 @@ flutter run                       # debug
 flutter build windows --release   # Windows -> build/windows/x64/runner/Release/
 flutter build apk --release       # Android -> build/app/outputs/flutter-apk/
 flutter build linux --release     # Linux   -> build/linux/x64/release/bundle/
-linux/packaging/build-packages.sh 2.6 dist   # Linux .deb and AppImage
+linux/packaging/build-packages.sh 2.7 dist   # Linux .deb and AppImage
 ```
 
 ## MCP server (optional)
