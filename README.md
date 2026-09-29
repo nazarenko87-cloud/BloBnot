@@ -112,7 +112,7 @@ flutter run                       # debug
 flutter build windows --release   # Windows -> build/windows/x64/runner/Release/
 flutter build apk --release       # Android -> build/app/outputs/flutter-apk/
 flutter build linux --release     # Linux   -> build/linux/x64/release/bundle/
-linux/packaging/build-packages.sh 2.7 dist   # Linux .deb and AppImage
+linux/packaging/build-packages.sh 2.7.1 dist   # Linux .deb and AppImage
 ```
 
 ## MCP server (optional)
