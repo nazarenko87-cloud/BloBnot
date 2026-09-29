@@ -74,6 +74,12 @@ class HomePage extends StatefulWidget {
 enum _MainView { notes, hot, dashboard, table }
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
+  // Rail icon sizes: the flame 5% up on its old 30, main views as before,
+  // service tools smaller.
+  static const double _railHotIcon = 31.5;
+  static const double _railMainIcon = 22;
+  static const double _railSmallIcon = 18;
+
   /// A phone keeps the app in memory for days, so without this, changes
   /// made on another device (hot tasks, notes) would only show after a manual
   /// refresh. A short trip away — the share sheet, a notification — does not
@@ -217,162 +223,186 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final accent = Theme.of(context).colorScheme.primary;
     final shell = Theme.of(context).extension<ShellStyle>();
     final compact = shell?.compactIcons ?? false;
-    Widget item(IconData icon, String tip, bool active, VoidCallback onTap) =>
-        Padding(
-          padding: EdgeInsets.symmetric(vertical: compact ? 1 : 3),
-          child: IconButton(
-            tooltip: tip,
-            isSelected: active,
-            style: IconButton.styleFrom(
-              backgroundColor: active ? accent.withValues(alpha: 0.18) : null,
-              minimumSize: compact ? const Size(34, 34) : null,
-            ),
-            icon: Icon(
-              icon,
-              size: shell?.icon(22) ?? 22,
-              color: active ? accent : null,
-            ),
-            onPressed: onTap,
+    // Three sizes, so the eye lands on what matters: the Hot tasks flame
+    // largest, the main views (notes, list, dashboard, table) medium, and
+    // the service tools small. Sized so the whole rail fits without
+    // scrolling in any ordinary window.
+    Widget item(
+      IconData icon,
+      String tip,
+      bool active,
+      VoidCallback onTap, {
+      bool small = false,
+    }) {
+      final size = small ? _railSmallIcon : _railMainIcon;
+      return Padding(
+        padding: EdgeInsets.symmetric(vertical: small ? 0 : 2),
+        child: IconButton(
+          tooltip: tip,
+          isSelected: active,
+          visualDensity: small ? VisualDensity.compact : null,
+          style: IconButton.styleFrom(
+            backgroundColor: active ? accent.withValues(alpha: 0.18) : null,
+            minimumSize: Size.square(small ? 32 : 40),
+            padding: EdgeInsets.all(small ? 6 : 8),
           ),
-        );
+          icon: Icon(
+            icon,
+            size: shell?.icon(size) ?? size,
+            color: active ? accent : null,
+          ),
+          onPressed: onTap,
+        ),
+      );
+    }
+
+    final top = [
+      // App mark at the very top of the rail.
+      Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: accent,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          'B',
+          style: TextStyle(
+            color: onAccent(accent),
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
+          ),
+        ),
+      ),
+      SizedBox(height: compact ? 8 : 10),
+      // Hot tasks sit first and larger than the other rail items.
+      HotBadge(
+        count: context.watch<VaultController>().hotInProgressCount,
+        child: IconButton(
+          key: const Key('rail-hot'),
+          tooltip: 'Hot tasks',
+          isSelected: _showHot,
+          style: IconButton.styleFrom(
+            minimumSize: const Size.square(50),
+            backgroundColor: _showHot
+                ? kHotColor.withValues(alpha: 0.18)
+                : null,
+          ),
+          icon: const Icon(
+            Icons.local_fire_department,
+            size: _railHotIcon,
+            color: kHotColor,
+          ),
+          onPressed: () => _go(_MainView.hot),
+        ),
+      ),
+      const SizedBox(height: 6),
+      item(
+        Icons.description_outlined,
+        'Notes',
+        _view == _MainView.notes,
+        _showNotes,
+      ),
+      item(
+        Icons.view_sidebar_outlined,
+        _showList ? 'Hide notes list' : 'Show notes list',
+        _showList,
+        () => setState(() {
+          _showList = !_showList;
+          _view = _MainView.notes;
+        }),
+      ),
+      item(
+        Icons.dashboard_outlined,
+        'Dashboard',
+        _showDashboard,
+        () => _go(_MainView.dashboard),
+      ),
+      item(
+        Icons.table_chart_outlined,
+        'Table — notes by their fields',
+        _showTable,
+        () => _go(_MainView.table),
+      ),
+    ];
+
+    final tools = [
+      item(
+        Icons.bolt,
+        'Quick switcher (Ctrl+P)',
+        false,
+        () => _quickSwitcher(context),
+        small: true,
+      ),
+      item(
+        Icons.hub_outlined,
+        _showGraph ? 'Hide graph' : 'Show graph',
+        _showGraph,
+        () => setState(() {
+          _showGraph = !_showGraph;
+          // The graph is a panel beside the editor.
+          if (_showGraph) _view = _MainView.notes;
+        }),
+        small: true,
+      ),
+      item(
+        Icons.refresh,
+        'Refresh notes from disk (Ctrl+R)',
+        false,
+        () => _refresh(context),
+        small: true,
+      ),
+      item(
+        Icons.file_open_outlined,
+        'Open file (.txt / .md)',
+        false,
+        () => _openExternalFile(context),
+        small: true,
+      ),
+      item(
+        Icons.calculate_outlined,
+        'Calculator',
+        false,
+        () => showCalculatorDialog(context),
+        small: true,
+      ),
+      item(Icons.fullscreen, 'Fullscreen', false, () async {
+        final fs = await windowManager.isFullScreen();
+        await windowManager.setFullScreen(!fs);
+      }, small: true),
+      item(
+        Icons.settings_outlined,
+        'Settings',
+        false,
+        () => showSettingsDialog(context),
+        small: true,
+      ),
+      item(
+        Icons.info_outline,
+        'About',
+        false,
+        () => _showAbout(context),
+        small: true,
+      ),
+    ];
 
     return ShellCard(
       child: SizedBox(
         width: 56,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Column(
-            children: [
-              // App mark at the very top of the rail.
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: accent,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  'B',
-                  style: TextStyle(
-                    color: onAccent(accent),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                  ),
-                ),
+        // Main views at the top, tools at the bottom, free space between.
+        // Only a window too short for all of them scrolls, as a last resort.
+        child: CustomScrollView(
+          key: const Key('rail'),
+          slivers: [
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Column(children: [...top, const Spacer(), ...tools]),
               ),
-              const SizedBox(height: 12),
-              // Hot tasks sit first and larger than the other rail items.
-              HotBadge(
-                count: context.watch<VaultController>().hotInProgressCount,
-                child: IconButton(
-                  key: const Key('rail-hot'),
-                  tooltip: 'Hot tasks',
-                  isSelected: _showHot,
-                  style: IconButton.styleFrom(
-                    minimumSize: const Size(48, 48),
-                    backgroundColor: _showHot
-                        ? kHotColor.withValues(alpha: 0.18)
-                        : null,
-                  ),
-                  icon: const Icon(
-                    Icons.local_fire_department,
-                    size: 30,
-                    color: kHotColor,
-                  ),
-                  onPressed: () => _go(_MainView.hot),
-                ),
-              ),
-              const SizedBox(height: 8),
-              // Scrollable so a short window height clips gracefully instead
-              // of overflowing — the bottom icons stay pinned via Expanded.
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    children: [
-                      item(
-                        Icons.description_outlined,
-                        'Notes',
-                        _view == _MainView.notes,
-                        _showNotes,
-                      ),
-                      item(
-                        Icons.dashboard_outlined,
-                        'Dashboard',
-                        _showDashboard,
-                        () => _go(_MainView.dashboard),
-                      ),
-                      item(
-                        Icons.table_chart_outlined,
-                        'Table — notes by their fields',
-                        _showTable,
-                        () => _go(_MainView.table),
-                      ),
-                      item(
-                        Icons.view_sidebar_outlined,
-                        _showList ? 'Hide notes list' : 'Show notes list',
-                        _showList,
-                        () => setState(() {
-                          _showList = !_showList;
-                          _view = _MainView.notes;
-                        }),
-                      ),
-                      item(
-                        Icons.bolt,
-                        'Quick switcher (Ctrl+P)',
-                        false,
-                        () => _quickSwitcher(context),
-                      ),
-                      item(
-                        Icons.hub_outlined,
-                        _showGraph ? 'Hide graph' : 'Show graph',
-                        _showGraph,
-                        () => setState(() {
-                          _showGraph = !_showGraph;
-                          // The graph is a panel beside the editor.
-                          if (_showGraph) _view = _MainView.notes;
-                        }),
-                      ),
-                      item(
-                        Icons.refresh,
-                        'Refresh notes from disk (Ctrl+R)',
-                        false,
-                        () => _refresh(context),
-                      ),
-                      item(
-                        Icons.file_open_outlined,
-                        'Open file (.txt / .md)',
-                        false,
-                        () => _openExternalFile(context),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              item(
-                Icons.calculate_outlined,
-                'Calculator',
-                false,
-                () => showCalculatorDialog(context),
-              ),
-              item(Icons.fullscreen, 'Fullscreen', false, () async {
-                final fs = await windowManager.isFullScreen();
-                await windowManager.setFullScreen(!fs);
-              }),
-              item(
-                Icons.settings_outlined,
-                'Settings',
-                false,
-                () => showSettingsDialog(context),
-              ),
-              item(
-                Icons.info_outline,
-                'About',
-                false,
-                () => _showAbout(context),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

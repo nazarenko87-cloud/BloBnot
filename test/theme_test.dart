@@ -107,6 +107,29 @@ void main() {
     expect(lite.extension<ShellStyle>()!.serifTitles, isTrue);
   });
 
+  test('White Blue: white panels, fixed blue, outlined cards', () {
+    for (final index in [0, 2, 6]) {
+      final theme = buildTheme(
+        styleId: 'whiteblue',
+        accentIndex: index,
+        dark: false,
+      );
+      expect(theme.colorScheme.primary, kWhiteBlueAccent);
+      expect(theme.colorScheme.surface, Colors.white);
+    }
+    final light = buildTheme(styleId: 'whiteblue', accentIndex: 0, dark: false);
+    // A light page with a blue cast.
+    final page = light.scaffoldBackgroundColor;
+    expect(page.computeLuminance(), greaterThan(0.85));
+    expect(page.b, greaterThan(page.r));
+    final shell = light.extension<ShellStyle>()!;
+    expect(shell.flat, isFalse);
+    expect(shell.borderColor, isNotNull);
+    expect(onAccent(kWhiteBlueAccent), Colors.white);
+    final dark = buildTheme(styleId: 'whiteblue', accentIndex: 0, dark: true);
+    expect(dark.brightness, Brightness.dark);
+  });
+
   test('onAccent keeps label text readable on either accent', () {
     expect(onAccent(const Color(0xFF171717)), Colors.white);
     expect(onAccent(const Color(0xFFF5F5F5)), isNot(Colors.white));

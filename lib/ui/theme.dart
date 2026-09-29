@@ -25,6 +25,9 @@ class ThemeStyle {
     this.flat = false,
     this.compact = false,
     this.fixedAccent,
+    this.lightBorder,
+    this.darkBorder,
+    this.tintContainers = false,
   });
 
   final String id;
@@ -46,6 +49,14 @@ class ThemeStyle {
 
   /// Accent this style always uses, ignoring the accent picker.
   final Color? fixedAccent;
+
+  /// A thin card outline drawn along with the shadow ("White Blue").
+  final Color? lightBorder;
+  final Color? darkBorder;
+
+  /// Selected buttons and chips in a see-through wash of the accent instead
+  /// of Material's own lilac container colours.
+  final bool tintContainers;
 }
 
 const List<ThemeStyle> kThemeStyles = [
@@ -126,7 +137,24 @@ const List<ThemeStyle> kThemeStyles = [
     compact: true,
     fixedAccent: kUbuntuOrange,
   ),
+  // "White Blue": a messenger-style window — white panels on a barely blue
+  // page, with active items in a see-through light blue.
+  ThemeStyle(
+    id: 'whiteblue',
+    label: 'White Blue',
+    darkScaffold: Color(0xFF111827),
+    darkSurface: Color(0xFF1A2335),
+    lightScaffold: Color(0xFFEFF4FB),
+    lightSurface: Color(0xFFFFFFFF),
+    fixedAccent: kWhiteBlueAccent,
+    lightBorder: Color(0xFFDCE7F5),
+    darkBorder: Color(0xFF26324A),
+    tintContainers: true,
+  ),
 ];
+
+/// The blue of the "White Blue" style.
+const Color kWhiteBlueAccent = Color(0xFF3B82F6);
 
 /// Ubuntu's signature orange, the accent of the "Lite 2" style.
 const Color kUbuntuOrange = Color(0xFFE95420);
@@ -264,6 +292,7 @@ ThemeData buildTheme({
       ? (dark ? const Color(0xFF3A3736) : const Color(0xFFD6D2CF))
       : rule;
   final plain = style.flat || style.compact;
+  final wash = Color.alphaBlend(accent.withValues(alpha: 0.16), surface);
 
   return base.copyWith(
     scaffoldBackgroundColor: scaffold,
@@ -271,6 +300,10 @@ ThemeData buildTheme({
       primary: accent,
       secondary: accent,
       surface: surface,
+      primaryContainer: style.tintContainers ? wash : null,
+      secondaryContainer: style.tintContainers ? wash : null,
+      onPrimaryContainer: style.tintContainers ? accent : null,
+      onSecondaryContainer: style.tintContainers ? accent : null,
     ),
     appBarTheme: base.appBarTheme.copyWith(backgroundColor: scaffold),
     // Material 3 tints menus and dialogs toward its own seed colour, which
@@ -297,7 +330,9 @@ ThemeData buildTheme({
       ShellStyle(
         flat: plain,
         radius: style.flat ? 0 : (style.compact ? 6 : kCardRadius),
-        borderColor: plain ? hairline : null,
+        borderColor: plain
+            ? hairline
+            : (dark ? style.darkBorder : style.lightBorder),
         reducedMotion: plain,
         serifTitles: style.flat,
         compactIcons: style.compact,

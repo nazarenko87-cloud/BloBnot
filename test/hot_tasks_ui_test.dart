@@ -59,6 +59,32 @@ void main() {
     });
   }
 
+  testWidgets('desktop: the rail fits without scrolling, flame biggest', (
+    tester,
+  ) async {
+    await pumpApp(tester, const Size(1280, 720));
+
+    final rail = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byKey(const Key('rail')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(rail.position.maxScrollExtent, 0);
+
+    double iconSize(IconData icon) =>
+        tester.widget<Icon>(find.byIcon(icon).first).size!;
+    final flame = iconSize(Icons.local_fire_department);
+    final notes = iconSize(Icons.description_outlined);
+    final settings = iconSize(Icons.settings_outlined);
+    expect(flame, greaterThan(30));
+    expect(notes, greaterThan(settings));
+    expect(iconSize(Icons.table_chart_outlined), notes);
+    expect(iconSize(Icons.calculate_outlined), settings);
+
+    await cleanUp(tester);
+  });
+
   testWidgets('desktop: rail flame opens the view, add, complete, reopen', (
     tester,
   ) async {
