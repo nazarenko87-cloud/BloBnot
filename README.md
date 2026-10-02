@@ -1,7 +1,8 @@
 # BloBnot
 
-A minimalist, cross-platform notes app for project documentation — local Markdown files
-with an Obsidian-style link graph. Built with Flutter for Windows and Android.
+A friendly notebook for your ideas and everyday tasks. Every note is a plain Markdown
+(`.md`) file; jot down a thought in seconds, keep running to-dos in Hot tasks, and see how
+your notes connect in an Obsidian-style link graph. Free, for Windows, Android and Linux.
 
 Your notes are plain `.md` files in a folder you choose. No database, no lock-in — point
 the vault at a Google Drive folder and the same notes follow you across devices. Data
