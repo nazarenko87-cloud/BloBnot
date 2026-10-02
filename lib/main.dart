@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'state/external_files_controller.dart';
+import 'services/window_fit.dart';
 import 'state/vault_controller.dart';
 import 'ui/home_page.dart';
 import 'ui/theme.dart';
@@ -28,6 +29,10 @@ void main() async {
       await windowManager.waitUntilReadyToShow(
         const WindowOptions(titleBarStyle: TitleBarStyle.hidden),
         () async {
+          // The window opens at a fixed corner, which lands under a taskbar
+          // docked at the top of the screen.
+          await fitWindowOnScreen();
+          windowManager.addListener(KeepTitleBarReachable());
           await windowManager.show();
           await windowManager.focus();
         },
@@ -115,10 +120,7 @@ class _WindowsShell extends StatelessWidget {
                   const SizedBox(width: 8),
                   const Text(
                     'BloBnot',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                   ),
                 ],
               ),

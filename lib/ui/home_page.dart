@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import '../services/vault_picker.dart';
 import 'package:file_selector/file_selector.dart';
@@ -79,6 +80,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   static const double _railHotIcon = 31.5;
   static const double _railMainIcon = 22;
   static const double _railSmallIcon = 18;
+
+  /// Desktop window (DragToMoveArea needs window_manager, which only runs
+  /// on Windows and Linux here).
+  static final bool _desktop = Platform.isWindows || Platform.isLinux;
 
   /// A phone keeps the app in memory for days, so without this, changes
   /// made on another device (hot tasks, notes) would only show after a manual
@@ -399,7 +404,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               hasScrollBody: false,
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 10),
-                child: Column(children: [...top, const Spacer(), ...tools]),
+                child: Column(
+                  children: [
+                    ...top,
+                    // The free stretch of the rail drags the window too —
+                    // a second handle for when the title bar is out of reach.
+                    Expanded(
+                      child: _desktop
+                          ? const DragToMoveArea(child: SizedBox.expand())
+                          : const SizedBox.shrink(),
+                    ),
+                    ...tools,
+                  ],
+                ),
               ),
             ),
           ],
