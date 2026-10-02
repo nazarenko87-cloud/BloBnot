@@ -21,12 +21,24 @@ class VaultSettings {
   /// Editor font scale, 1.0 = 100%.
   final double editorScale;
 
+  /// Edit mode shows formatted text and hides the Markdown marks on every
+  /// line except the one being edited.
+  final bool livePreview;
+
+  /// Keeps lines at a readable length, centred, on a wide window.
+  final bool readableWidth;
+
+  final bool lineNumbers;
+
   const VaultSettings({
     this.themeMode = 'system',
     this.themeStyle = 'petrol',
     this.accentIndex = 0,
     this.glyphStyle = 'ring',
     this.editorScale = 1.0,
+    this.livePreview = true,
+    this.readableWidth = true,
+    this.lineNumbers = true,
   });
 
   Map<String, dynamic> toJson() => {
@@ -35,6 +47,9 @@ class VaultSettings {
     'accentIndex': accentIndex,
     'glyphStyle': glyphStyle,
     'editorScale': editorScale,
+    'livePreview': livePreview,
+    'readableWidth': readableWidth,
+    'lineNumbers': lineNumbers,
   };
 
   factory VaultSettings.fromJson(Map<String, dynamic> j) {
@@ -61,6 +76,9 @@ class VaultSettings {
       accentIndex: (j['accentIndex'] as int?) ?? 0,
       glyphStyle: (j['glyphStyle'] as String?) ?? 'ring',
       editorScale: ((j['editorScale'] as num?) ?? 1.0).toDouble(),
+      livePreview: (j['livePreview'] as bool?) ?? true,
+      readableWidth: (j['readableWidth'] as bool?) ?? true,
+      lineNumbers: (j['lineNumbers'] as bool?) ?? true,
     );
   }
 
@@ -70,12 +88,18 @@ class VaultSettings {
     int? accentIndex,
     String? glyphStyle,
     double? editorScale,
+    bool? livePreview,
+    bool? readableWidth,
+    bool? lineNumbers,
   }) => VaultSettings(
     themeMode: themeMode ?? this.themeMode,
     themeStyle: themeStyle ?? this.themeStyle,
     accentIndex: accentIndex ?? this.accentIndex,
     glyphStyle: glyphStyle ?? this.glyphStyle,
     editorScale: editorScale ?? this.editorScale,
+    livePreview: livePreview ?? this.livePreview,
+    readableWidth: readableWidth ?? this.readableWidth,
+    lineNumbers: lineNumbers ?? this.lineNumbers,
   );
 }
 
@@ -135,5 +159,37 @@ class AppSettings {
     final file = await _resolve();
     await file.parent.create(recursive: true);
     await file.writeAsString(jsonEncode(data));
+  }
+}
+
+/// Small app-local JSON files kept next to [AppSettings] — window placement,
+/// open tabs. Each lives in its own file, so two of them saving at the same
+/// moment cannot overwrite each other.
+class AppState {
+  static Future<File> _file(String name) async {
+    final settings = await AppSettings._resolve();
+    return File(p.join(settings.parent.path, '$name.json'));
+  }
+
+  static Future<Object?> read(String name) async {
+    try {
+      final file = await _file(name);
+      if (!await file.exists()) return null;
+      return jsonDecode(await file.readAsString());
+    } on FormatException {
+      return null;
+    } on IOException {
+      return null;
+    }
+  }
+
+  static Future<void> write(String name, Object? value) async {
+    try {
+      final file = await _file(name);
+      await file.parent.create(recursive: true);
+      await file.writeAsString(jsonEncode(value));
+    } on IOException {
+      // Losing remembered tabs or window placement is not worth an error.
+    }
   }
 }

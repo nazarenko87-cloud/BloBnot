@@ -312,6 +312,7 @@ class VaultController extends ChangeNotifier {
       await _loadHot();
       _current = _notes.isNotEmpty ? _notes.first : null;
       if (_current != null) _openPaths.add(_current!.path);
+      await _restoreTabs(root);
       await AppSettings.setLastVault(root);
       _reminderTimer?.cancel();
       _reminderTimer = Timer.periodic(
@@ -327,9 +328,6 @@ class VaultController extends ChangeNotifier {
     }
   }
 
-  /// Re-reads the vault from disk — picks up notes changed outside the app
-  /// (e.g. edited directly on disk) without restarting BloBnot. Flushes any
-  /// pending debounced save first so in-progress typing isn't discarded.
   /// Bumped by every [reload], so an open editor knows the note under it may
   /// have been replaced by a newer copy from disk.
   int _reloadCount = 0;
@@ -340,6 +338,9 @@ class VaultController extends ChangeNotifier {
   /// debounce timer fires.
   Future<void> flushPendingSave() => _flushPendingSave();
 
+  /// Re-reads the vault from disk — picks up notes changed outside the app
+  /// (e.g. edited directly on disk) without restarting BloBnot. Flushes any
+  /// pending debounced save first so in-progress typing isn't discarded.
   Future<void> reload() async {
     if (_storage == null) return;
     await _flushPendingSave();
@@ -799,6 +800,9 @@ class VaultController extends ChangeNotifier {
     int? accent,
     String? glyphStyle,
     double? editorScale,
+    bool? livePreview,
+    bool? readableWidth,
+    bool? lineNumbers,
   }) async {
     _settings = _settings.copyWith(
       themeMode: mode,
@@ -806,9 +810,64 @@ class VaultController extends ChangeNotifier {
       accentIndex: accent,
       glyphStyle: glyphStyle,
       editorScale: editorScale,
+      livePreview: livePreview,
+      readableWidth: readableWidth,
+      lineNumbers: lineNumbers,
     );
     notifyListeners();
     await _settingsStore?.save(_settings);
+  }
+
+  /// Open tabs and the shown note, per vault, as they were at the last
+  /// change — so the next start opens where you left off.
+  static const _tabsFile = 'tabs';
+  String? _savedTabs;
+  Future<void> _tabsWrite = Future.value();
+
+  Future<void> _restoreTabs(String root) async {
+    final all = await AppState.read(_tabsFile);
+    final saved = all is Map ? all[root] : null;
+    if (saved is! Map) return;
+    final byPath = {for (final n in _notes) n.path: n};
+    final open = [
+      for (final path in (saved['open'] as List?) ?? const [])
+        if (byPath.containsKey(path)) path as String,
+    ];
+    if (open.isEmpty) return;
+    _openPaths
+      ..clear()
+      ..addAll(open);
+    _current = byPath[saved['current']] ?? byPath[open.last];
+    _savedTabs = _tabsSnapshot();
+  }
+
+  String _tabsSnapshot() => [..._openPaths, '>', _current?.path].join('\n');
+
+  /// Called on every change; writes only when the tabs actually moved, so
+  /// typing in a note costs nothing here.
+  void _saveTabsIfChanged() {
+    final root = _storage?.id;
+    if (root == null || _disposed || _loading) return;
+    final snapshot = _tabsSnapshot();
+    if (snapshot == _savedTabs) return;
+    _savedTabs = snapshot;
+    final open = List<String>.of(_openPaths);
+    final current = _current?.path;
+    // Queued, so a quick run of tab switches is written in order.
+    _tabsWrite = _tabsWrite.then((_) async {
+      final all = await AppState.read(_tabsFile);
+      final map = all is Map
+          ? Map<String, Object?>.from(all)
+          : <String, Object?>{};
+      map[root] = {'open': open, 'current': current};
+      await AppState.write(_tabsFile, map);
+    });
+  }
+
+  @override
+  void notifyListeners() {
+    super.notifyListeners();
+    _saveTabsIfChanged();
   }
 
   @override

@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show BoxHeightStyle;
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
@@ -13,6 +15,7 @@ import 'package:provider/provider.dart';
 import '../models/note.dart';
 import '../services/attachment_store.dart';
 import '../services/export_service.dart';
+import '../services/settings_store.dart';
 import '../state/vault_controller.dart';
 import '../utils/editor_ops.dart';
 import '../utils/line_reminders.dart';
@@ -34,6 +37,7 @@ class _EditorPaneState extends State<EditorPane> {
   final _textController = HighlightingTextController();
   final _scroll = ScrollController();
   final _focus = FocusNode();
+  final _fieldKey = GlobalKey();
   final _findController = TextEditingController();
   final _replaceController = TextEditingController();
   ViewMode _mode = ViewMode.edit;
@@ -50,6 +54,10 @@ class _EditorPaneState extends State<EditorPane> {
   @override
   void initState() {
     super.initState();
+    // Live preview reveals the Markdown marks only on the caret's line, and
+    // only while the editor has focus.
+    _focus.addListener(() => _textController.editing = _focus.hasFocus);
+    _textController.live = context.read<VaultController>().settings.livePreview;
     _inserts = context.read<VaultController>().insertRequests.listen((text) {
       if (!mounted) return;
       _insertAtCursor(text);
@@ -91,13 +99,16 @@ class _EditorPaneState extends State<EditorPane> {
   void _ensureCaretVisible(double scale) {
     if (!_scroll.hasClients) return;
     final sel = _textController.selection;
-    if (!sel.isValid) return;
-    final text = _textController.text;
-    final caret = sel.baseOffset.clamp(0, text.length);
-    final line = '\n'.allMatches(text.substring(0, caret)).length;
-    final lineHeight = 14 * scale * 1.5;
-    final caretTop = line * lineHeight;
-    final caretBottom = caretTop + lineHeight;
+    final editable = _editable();
+    if (!sel.isValid || editable == null) return;
+    final caret = editable.getLocalRectForCaret(
+      TextPosition(
+        offset: sel.baseOffset.clamp(0, _textController.text.length),
+      ),
+    );
+    // The editable starts at the top of the scrolled content.
+    final caretTop = caret.top;
+    final caretBottom = caret.bottom;
     final position = _scroll.position;
     final viewTop = position.pixels;
     final viewBottom = viewTop + position.viewportDimension;
@@ -118,6 +129,24 @@ class _EditorPaneState extends State<EditorPane> {
         curve: Curves.easeOut,
       );
     }
+  }
+
+  /// The laid-out text of the editor, for caret and line positions.
+  RenderEditable? _editable() {
+    final root = _fieldKey.currentContext?.findRenderObject();
+    if (root == null) return null;
+    RenderEditable? found;
+    void visit(RenderObject node) {
+      if (found != null) return;
+      if (node is RenderEditable) {
+        found = node;
+        return;
+      }
+      node.visitChildren(visit);
+    }
+
+    visit(root);
+    return found;
   }
 
   /// Replace the whole body from outside the TextField (checkbox toggles,
@@ -866,9 +895,16 @@ class _EditorPaneState extends State<EditorPane> {
 
   Widget _editor(BuildContext context) {
     final controller = context.read<VaultController>();
-    final scale = context.select<VaultController, double>(
-      (c) => c.settings.editorScale,
+    final settings = context.select<VaultController, VaultSettings>(
+      (c) => c.settings,
     );
+    final scale = settings.editorScale;
+    if (_textController.live != settings.livePreview) {
+      // Not during build: the setter notifies the text field.
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _textController.live = settings.livePreview,
+      );
+    }
     return Scrollbar(
       controller: _scroll,
       child: SingleChildScrollView(
@@ -878,79 +914,107 @@ class _EditorPaneState extends State<EditorPane> {
         // a narrow/mobile window) instead of the caret writing flush against
         // the very edge of the visible area.
         padding: const EdgeInsets.only(bottom: 32),
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _LineNumbers(text: _textController, scale: scale),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Actions(
-                    // Overrides the TextField's built-in Ctrl+V — an image
-                    // on the clipboard is saved as an attachment instead of
-                    // being silently ignored/pasted as nothing.
-                    actions: <Type, Action<Intent>>{
-                      PasteTextIntent: CallbackAction<PasteTextIntent>(
-                        onInvoke: (intent) {
-                          _handlePaste(context);
-                          return null;
+        child: _readable(
+          settings,
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (settings.lineNumbers)
+                  _LineNumbers(
+                    text: _textController,
+                    scale: scale,
+                    editable: _editable,
+                  ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Actions(
+                      // Overrides the TextField's built-in Ctrl+V — an image
+                      // on the clipboard is saved as an attachment instead of
+                      // being silently ignored/pasted as nothing.
+                      actions: <Type, Action<Intent>>{
+                        PasteTextIntent: CallbackAction<PasteTextIntent>(
+                          onInvoke: (intent) {
+                            _handlePaste(context);
+                            return null;
+                          },
+                        ),
+                      },
+                      child: TextField(
+                        key: _fieldKey,
+                        controller: _textController,
+                        focusNode: _focus,
+                        // Whole-row selection boxes: they also give the line
+                        // numbers each row's true height.
+                        selectionHeightStyle: BoxHeightStyle.max,
+                        maxLines: null,
+                        expands: false,
+                        keyboardType: TextInputType.multiline,
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          height: 1.5,
+                          fontSize: 14 * scale,
+                        ),
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          isCollapsed: true,
+                        ),
+                        // Right-click menu gains "Reminder on line…".
+                        contextMenuBuilder: (context, editableTextState) =>
+                            AdaptiveTextSelectionToolbar.buttonItems(
+                              anchors: editableTextState.contextMenuAnchors,
+                              buttonItems: [
+                                ...editableTextState.contextMenuButtonItems,
+                                ContextMenuButtonItem(
+                                  label: 'Reminder on line…',
+                                  onPressed: () {
+                                    ContextMenuController.removeAny();
+                                    _insertLineReminder(context);
+                                  },
+                                ),
+                              ],
+                            ),
+                        onChanged: (v) {
+                          controller.editCurrentBody(v);
+                          _schedulePreview();
+                          _maybeAutocomplete(context);
+                          WidgetsBinding.instance.addPostFrameCallback(
+                            (_) => _ensureCaretVisible(scale),
+                          );
                         },
                       ),
-                    },
-                    child: TextField(
-                      controller: _textController,
-                      focusNode: _focus,
-                      maxLines: null,
-                      expands: false,
-                      keyboardType: TextInputType.multiline,
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        height: 1.5,
-                        fontSize: 14 * scale,
-                      ),
-                      decoration: const InputDecoration(
-                        border: InputBorder.none,
-                        isCollapsed: true,
-                      ),
-                      // Right-click menu gains "Reminder on line…".
-                      contextMenuBuilder: (context, editableTextState) =>
-                          AdaptiveTextSelectionToolbar.buttonItems(
-                            anchors: editableTextState.contextMenuAnchors,
-                            buttonItems: [
-                              ...editableTextState.contextMenuButtonItems,
-                              ContextMenuButtonItem(
-                                label: 'Reminder on line…',
-                                onPressed: () {
-                                  ContextMenuController.removeAny();
-                                  _insertLineReminder(context);
-                                },
-                              ),
-                            ],
-                          ),
-                      onChanged: (v) {
-                        controller.editCurrentBody(v);
-                        _schedulePreview();
-                        _maybeAutocomplete(context);
-                        WidgetsBinding.instance.addPostFrameCallback(
-                          (_) => _ensureCaretVisible(scale),
-                        );
-                      },
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _preview(Note note) {
-    final scale = context.select<VaultController, double>(
-      (c) => c.settings.editorScale,
+  /// At most about 100 characters per line, centred, when the window is
+  /// wider than that and the setting is on.
+  Widget _readable(VaultSettings settings, Widget child) {
+    if (!settings.readableWidth) return child;
+    // Average glyph width is about 0.6 em; plus line numbers and padding.
+    final maxWidth = 100 * 14 * settings.editorScale * 0.6 + 80;
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: child,
+      ),
     );
+  }
+
+  Widget _preview(Note note) {
+    final settings = context.select<VaultController, VaultSettings>(
+      (c) => c.settings,
+    );
+    final scale = settings.editorScale;
     // Render the debounced body (not note.body) so parsing is throttled.
     final source = _previewBody;
     final linked = LineReminders.linkify(Checklist.linkify(source))
@@ -968,13 +1032,16 @@ class _EditorPaneState extends State<EditorPane> {
     return MediaQuery.withClampedTextScaling(
       minScaleFactor: scale,
       maxScaleFactor: scale,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (front.properties.isNotEmpty)
-            _PropertiesCard(properties: front.properties),
-          Expanded(child: _markdown(rendered, source)),
-        ],
+      child: _readable(
+        settings,
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (front.properties.isNotEmpty)
+              _PropertiesCard(properties: front.properties),
+            Expanded(child: _markdown(rendered, source)),
+          ],
+        ),
       ),
     );
   }
@@ -1408,42 +1475,135 @@ class _AttachmentsPanel extends StatelessWidget {
   }
 }
 
-class _LineNumbers extends StatelessWidget {
-  const _LineNumbers({required this.text, required this.scale});
+/// Line numbers beside the editor, each set level with its line as laid
+/// out: a wrapped line takes several rows and a heading is taller, so the
+/// positions come from the text's real layout, not a fixed line height.
+class _LineNumbers extends StatefulWidget {
+  const _LineNumbers({
+    required this.text,
+    required this.scale,
+    required this.editable,
+  });
+
   final TextEditingController text;
   final double scale;
 
+  /// The editor's laid-out text, or null before the first layout.
+  final RenderEditable? Function() editable;
+
+  @override
+  State<_LineNumbers> createState() => _LineNumbersState();
+}
+
+class _LineNumbersState extends State<_LineNumbers> {
+  /// Bottom edge of each line's first row, in the editor's coordinates.
+  List<double> _bottoms = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    widget.text.addListener(_scheduleMeasure);
+    _scheduleMeasure();
+  }
+
+  @override
+  void didUpdateWidget(_LineNumbers old) {
+    super.didUpdateWidget(old);
+    if (old.text != widget.text) {
+      old.text.removeListener(_scheduleMeasure);
+      widget.text.addListener(_scheduleMeasure);
+    }
+    // Width or font changes re-wrap the text.
+    _scheduleMeasure();
+  }
+
+  @override
+  void dispose() {
+    widget.text.removeListener(_scheduleMeasure);
+    super.dispose();
+  }
+
+  bool _pending = false;
+
+  void _scheduleMeasure() {
+    if (_pending) return;
+    _pending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pending = false;
+      if (!mounted) return;
+      final editable = widget.editable();
+      if (editable == null || !editable.hasSize) return;
+      final text = widget.text.text;
+      final bottoms = <double>[];
+      var offset = 0;
+      while (true) {
+        // The first character's box spans its whole row (the editor uses
+        // BoxHeightStyle.max) even when it is a hidden live-preview mark.
+        final boxes = offset < text.length
+            ? editable.getBoxesForSelection(
+                TextSelection(baseOffset: offset, extentOffset: offset + 1),
+              )
+            : const <TextBox>[];
+        bottoms.add(
+          boxes.isNotEmpty
+              ? boxes.first.bottom
+              : editable
+                    .getLocalRectForCaret(TextPosition(offset: offset))
+                    .bottom,
+        );
+        final next = text.indexOf('\n', offset);
+        if (next < 0) break;
+        offset = next + 1;
+      }
+      if (!_same(bottoms, _bottoms)) setState(() => _bottoms = bottoms);
+    });
+  }
+
+  static bool _same(List<double> a, List<double> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if ((a[i] - b[i]).abs() > 0.5) return false;
+    }
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: text,
-      builder: (context, _) {
-        final lines = '\n'.allMatches(text.text).length + 1;
-        // One Text with all numbers — a per-line widget column re-lays out
-        // every line on each keystroke, which lags on long notes.
-        final buffer = StringBuffer();
-        for (var i = 1; i <= lines; i++) {
-          buffer.write(i);
-          if (i < lines) buffer.write('\n');
-        }
-        return Container(
-          width: 40,
-          padding: const EdgeInsets.only(right: 8),
-          alignment: Alignment.topRight,
-          child: Text(
-            buffer.toString(),
-            textAlign: TextAlign.right,
-            style: TextStyle(
-              fontFamily: 'monospace',
-              height: 1.5,
-              fontSize: 14 * scale,
-              color: Colors.grey.shade600,
-            ),
-          ),
-        );
-      },
+    final style = TextStyle(
+      fontFamily: 'monospace',
+      fontSize: 13 * widget.scale,
+      color: Colors.grey.shade600,
+    );
+    return SizedBox(
+      width: 44,
+      child: CustomPaint(painter: _LineNumberPainter(_bottoms, style)),
     );
   }
+}
+
+class _LineNumberPainter extends CustomPainter {
+  _LineNumberPainter(this.bottoms, this.style);
+
+  final List<double> bottoms;
+  final TextStyle style;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (var i = 0; i < bottoms.length; i++) {
+      final tp = TextPainter(
+        text: TextSpan(text: '${i + 1}', style: style),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      // Sit on the same baseline-ish as the line's first row, right-aligned.
+      final y = bottoms[i] - tp.height - style.fontSize! * 0.3;
+      tp.paint(canvas, Offset(size.width - 8 - tp.width, y));
+      tp.dispose();
+    }
+  }
+
+  @override
+  bool shouldRepaint(_LineNumberPainter old) =>
+      old.bottoms != bottoms || old.style != style;
 }
 
 class _Toolbar extends StatelessWidget {

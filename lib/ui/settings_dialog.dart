@@ -197,6 +197,39 @@ class _SettingsDialog extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 6),
+              const _Section('Editor'),
+              SwitchListTile(
+                key: const Key('setting-live-preview'),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Live preview'),
+                subtitle: const Text(
+                  'Formatted text while you write; Markdown marks show only '
+                  'on the line you are editing',
+                ),
+                value: s.livePreview,
+                onChanged: (v) => controller.setTheme(livePreview: v),
+              ),
+              SwitchListTile(
+                key: const Key('setting-readable-width'),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Readable line width'),
+                subtitle: const Text(
+                  'Lines stop at about 100 characters, centred on wide windows',
+                ),
+                value: s.readableWidth,
+                onChanged: (v) => controller.setTheme(readableWidth: v),
+              ),
+              SwitchListTile(
+                key: const Key('setting-line-numbers'),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Line numbers'),
+                value: s.lineNumbers,
+                onChanged: (v) => controller.setTheme(lineNumbers: v),
+              ),
+              const SizedBox(height: 6),
               const _Section('Notes storage'),
               Text(
                 'A folder of .md files. Point it at a folder synced by '

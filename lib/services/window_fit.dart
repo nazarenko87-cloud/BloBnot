@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
+
+import 'settings_store.dart';
 
 /// Keeps the desktop window where it can be grabbed. BloBnot draws its own
 /// title bar, so if the top of the window slides under a taskbar docked at
@@ -76,4 +79,56 @@ class KeepTitleBarReachable with WindowListener {
     final fixed = keepTopReachable(bounds, await _workAreaFor(bounds));
     if (fixed != bounds) await windowManager.setPosition(fixed.topLeft);
   }
+}
+
+/// Where the window was last time: size, position and whether it was
+/// maximized. Restored before the window is shown, then fitted to the
+/// screens that exist now.
+const _windowFile = 'window';
+
+Future<void> restoreWindow() async {
+  final saved = await AppState.read(_windowFile);
+  if (saved is Map) {
+    final x = saved['x'], y = saved['y'], w = saved['w'], h = saved['h'];
+    if (x is num && y is num && w is num && h is num && w > 200 && h > 200) {
+      await windowManager.setBounds(
+        Rect.fromLTWH(x.toDouble(), y.toDouble(), w.toDouble(), h.toDouble()),
+      );
+    }
+  }
+  await fitWindowOnScreen();
+  if (saved is Map && saved['maximized'] == true) {
+    await windowManager.maximize();
+  }
+}
+
+/// Saves the placement after every move or resize. While maximized only the
+/// flag changes, so un-maximizing next time returns to the last normal size.
+class RememberWindow with WindowListener {
+  Future<void> _save() async {
+    if (await windowManager.isFullScreen()) return;
+    final maximized = await windowManager.isMaximized();
+    final previous = await AppState.read(_windowFile);
+    final data = previous is Map
+        ? Map<String, Object?>.from(previous)
+        : <String, Object?>{};
+    data['maximized'] = maximized;
+    if (!maximized && !await windowManager.isMinimized()) {
+      final b = await windowManager.getBounds();
+      data.addAll({'x': b.left, 'y': b.top, 'w': b.width, 'h': b.height});
+    }
+    await AppState.write(_windowFile, data);
+  }
+
+  @override
+  void onWindowMoved() => unawaited(_save());
+
+  @override
+  void onWindowResized() => unawaited(_save());
+
+  @override
+  void onWindowMaximize() => unawaited(_save());
+
+  @override
+  void onWindowUnmaximize() => unawaited(_save());
 }

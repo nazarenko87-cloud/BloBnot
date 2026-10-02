@@ -11,7 +11,7 @@ import 'ui/home_page.dart';
 import 'ui/theme.dart';
 
 /// App version string surfaced in the About dialog. Keep in sync with pubspec.
-const String kAppVersion = '2.7.1';
+const String kAppVersion = '2.8';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,10 +29,12 @@ void main() async {
       await windowManager.waitUntilReadyToShow(
         const WindowOptions(titleBarStyle: TitleBarStyle.hidden),
         () async {
-          // The window opens at a fixed corner, which lands under a taskbar
-          // docked at the top of the screen.
-          await fitWindowOnScreen();
-          windowManager.addListener(KeepTitleBarReachable());
+          // Last session's size and place, fitted to today's screens (the
+          // runner's fixed corner would sit under a taskbar docked on top).
+          await restoreWindow();
+          windowManager
+            ..addListener(KeepTitleBarReachable())
+            ..addListener(RememberWindow());
           await windowManager.show();
           await windowManager.focus();
         },

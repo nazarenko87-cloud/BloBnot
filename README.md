@@ -15,8 +15,12 @@ lives outside the app folder, so it survives updates.
   each top-level folder becomes a project hub node. Drag, zoom, click to open.
 - **Wiki links** — `[[Note]]`, `[[Note|alias]]` and `[[Note#Heading]]`, with `[[` autocomplete
   and a link picker. Renaming a note auto-updates every link to it.
-- **Code-style editor** — line numbers, live Markdown syntax highlighting, split edit/preview,
-  formatting toolbar, images, and paste-a-screenshot straight into a note.
+- **Live preview editor** — you write in formatted text: headings are larger, and `**`,
+  `##`, `[[ ]]` and backticks stay hidden except on the line you are editing. Lines keep
+  a readable width on wide screens, and line numbers follow wrapped lines. Also a split
+  edit/preview view, a formatting toolbar, images, and paste-a-screenshot into a note.
+- **Picks up where you left off** — the window reopens at the same size and place (always
+  clear of a taskbar, even one docked at the top), with the same notes open as tabs.
 - **Projects** — folders as projects: rename, delete, and drag to reorder.
 - **Tag glyphs** — map a `#tag` or a note to an icon, shown as a medallion in the list,
   graph and dashboard.
@@ -113,7 +117,7 @@ flutter run                       # debug
 flutter build windows --release   # Windows -> build/windows/x64/runner/Release/
 flutter build apk --release       # Android -> build/app/outputs/flutter-apk/
 flutter build linux --release     # Linux   -> build/linux/x64/release/bundle/
-linux/packaging/build-packages.sh 2.7.1 dist   # Linux .deb and AppImage
+linux/packaging/build-packages.sh 2.8 dist   # Linux .deb and AppImage
 ```
 
 ## MCP server (optional)
