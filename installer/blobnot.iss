@@ -12,7 +12,7 @@
 ;   mcp\build\blobnot-mcp.exe           optional, from `npm run build:exe`
 
 #ifndef AppVersion
-  #define AppVersion "2.8"
+  #define AppVersion "2.9"
 #endif
 
 #define AppName "BloBnot"
