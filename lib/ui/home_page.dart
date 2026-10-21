@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../main.dart' show kAppVersion;
+import '../services/settings_store.dart' show AppState;
 import '../state/external_files_controller.dart';
 import '../state/vault_controller.dart';
 import 'dashboard.dart';
@@ -63,6 +64,65 @@ class ShellCard extends StatelessWidget {
   }
 }
 
+/// One full-width rail entry: icon on the left, its name beside it, and a
+/// tinted pill when it is the active view.
+class _RailRow extends StatelessWidget {
+  const _RailRow({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.color,
+    required this.height,
+    required this.onTap,
+  });
+
+  final Widget icon;
+  final String label;
+  final bool active;
+  final Color color;
+  final double height;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+      child: Material(
+        color: active ? color.withValues(alpha: 0.18) : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: SizedBox(
+            height: height,
+            child: Row(
+              children: [
+                const SizedBox(width: 8),
+                SizedBox(width: 32, child: Center(child: icon)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                      color: active ? color : null,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Short hairline that separates the rail's groups (hot / views / tools).
 class _RailDivider extends StatelessWidget {
   const _RailDivider();
@@ -91,6 +151,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   static const double _railHotIcon = 31.5;
   static const double _railMainIcon = 22;
   static const double _railSmallIcon = 20;
+  static const double _railLabelsMinWidth = 1100;
 
   /// Desktop window (DragToMoveArea needs window_manager, which only runs
   /// on Windows and Linux here).
@@ -103,10 +164,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   static const _reloadAfterAway = Duration(seconds: 10);
   DateTime? _backgroundedAt;
 
+  /// Rail shows a text label beside each icon. On by default; the chevron at
+  /// the top collapses it to icons only, and the choice is remembered.
+  bool _railLabels = true;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(_loadRailLabels());
+  }
+
+  Future<void> _loadRailLabels() async {
+    final saved = await AppState.read('rail');
+    if (!mounted || saved is! Map || saved['labels'] is! bool) return;
+    if (saved['labels'] != _railLabels) {
+      setState(() => _railLabels = saved['labels'] as bool);
+    }
+  }
+
+  void _setRailLabels(bool value) {
+    setState(() => _railLabels = value);
+    unawaited(AppState.write('rail', {'labels': value}));
   }
 
   @override
@@ -266,14 +345,37 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // largest, the main views (notes, list, dashboard, table) medium, and
     // the service tools small. Sized so the whole rail fits without
     // scrolling in any ordinary window.
+    // Labels need room: below ~1100px the editor card would be squeezed
+    // (its header row overflows), so a narrower window keeps icons only.
+    final wide = MediaQuery.sizeOf(context).width >= _railLabelsMinWidth;
+    final labels = _railLabels && wide;
     Widget item(
       IconData icon,
       String tip,
       bool active,
       VoidCallback onTap, {
       bool small = false,
+      String? label,
     }) {
       final size = small ? _railSmallIcon : _railMainIcon;
+      if (labels && label != null) {
+        return Tooltip(
+          message: tip,
+          waitDuration: const Duration(milliseconds: 600),
+          child: _RailRow(
+            icon: Icon(
+              icon,
+              size: shell?.icon(size) ?? size,
+              color: active ? accent : null,
+            ),
+            label: label,
+            active: active,
+            color: accent,
+            height: small ? 34 : 40,
+            onTap: onTap,
+          ),
+        );
+      }
       return Padding(
         padding: EdgeInsets.symmetric(vertical: small ? 0 : 2),
         child: IconButton(
@@ -295,53 +397,91 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
     }
 
-    final top = [
-      // App mark at the very top of the rail.
-      Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          color: accent,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          'B',
-          style: TextStyle(
-            color: onAccent(accent),
-            fontWeight: FontWeight.w800,
-            fontSize: 18,
-          ),
+    final mark = Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: accent,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        'B',
+        style: TextStyle(
+          color: onAccent(accent),
+          fontWeight: FontWeight.w800,
+          fontSize: 18,
         ),
       ),
+    );
+    final labelsToggle = IconButton(
+      key: const Key('rail-labels-toggle'),
+      tooltip: labels ? 'Hide labels' : 'Show labels',
+      visualDensity: VisualDensity.compact,
+      iconSize: 18,
+      icon: Icon(labels ? Icons.chevron_left : Icons.chevron_right),
+      onPressed: () => _setRailLabels(!labels),
+    );
+    final hotCount = context.watch<VaultController>().hotInProgressCount;
+    final top = [
+      // App mark at the very top of the rail; the labels switch sits beside
+      // it (or right under it when the rail is narrow).
+      if (labels)
+        Padding(
+          padding: const EdgeInsets.only(left: 11, right: 2),
+          child: Row(children: [mark, const Spacer(), labelsToggle]),
+        )
+      else ...[
+        mark,
+        if (wide) labelsToggle,
+      ],
       SizedBox(height: compact ? 8 : 10),
       // Hot tasks sit first and larger than the other rail items.
-      HotBadge(
-        count: context.watch<VaultController>().hotInProgressCount,
-        child: IconButton(
+      if (labels)
+        _RailRow(
           key: const Key('rail-hot'),
-          tooltip: 'Hot tasks',
-          isSelected: _showHot,
-          style: IconButton.styleFrom(
-            minimumSize: const Size.square(50),
-            backgroundColor: _showHot
-                ? kHotColor.withValues(alpha: 0.18)
-                : null,
+          icon: HotBadge(
+            count: hotCount,
+            child: const Icon(
+              Icons.local_fire_department,
+              size: _railHotIcon,
+              color: kHotColor,
+            ),
           ),
-          icon: const Icon(
-            Icons.local_fire_department,
-            size: _railHotIcon,
-            color: kHotColor,
+          label: 'Hot tasks',
+          active: _showHot,
+          color: kHotColor,
+          height: 52,
+          onTap: () => _go(_MainView.hot),
+        )
+      else
+        HotBadge(
+          count: hotCount,
+          child: IconButton(
+            key: const Key('rail-hot'),
+            tooltip: 'Hot tasks',
+            isSelected: _showHot,
+            style: IconButton.styleFrom(
+              minimumSize: const Size.square(50),
+              backgroundColor: _showHot
+                  ? kHotColor.withValues(alpha: 0.18)
+                  : null,
+            ),
+            icon: const Icon(
+              Icons.local_fire_department,
+              size: _railHotIcon,
+              color: kHotColor,
+            ),
+            onPressed: () => _go(_MainView.hot),
           ),
-          onPressed: () => _go(_MainView.hot),
         ),
-      ),
       const _RailDivider(),
       item(
         Icons.description_outlined,
         'Notes',
         _view == _MainView.notes,
         _showNotes,
+        label: 'Notes',
       ),
       item(
         Icons.view_sidebar_outlined,
@@ -351,18 +491,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _showList = !_showList;
           _view = _MainView.notes;
         }),
+        label: 'Notes list',
       ),
       item(
         Icons.dashboard_outlined,
         'Dashboard',
         _showDashboard,
         () => _go(_MainView.dashboard),
+        label: 'Dashboard',
       ),
       item(
         Icons.table_chart_outlined,
         'Table — notes by their fields',
         _showTable,
         () => _go(_MainView.table),
+        label: 'Table',
       ),
     ];
 
@@ -373,6 +516,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         false,
         () => _quickSwitcher(context),
         small: true,
+        label: 'Quick switcher',
       ),
       item(
         Icons.hub_outlined,
@@ -384,6 +528,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (_showGraph) _view = _MainView.notes;
         }),
         small: true,
+        label: 'Graph',
       ),
       item(
         Icons.refresh,
@@ -391,6 +536,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         false,
         () => _refresh(context),
         small: true,
+        label: 'Refresh',
       ),
       item(
         Icons.file_open_outlined,
@@ -398,6 +544,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         false,
         () => _openExternalFile(context),
         small: true,
+        label: 'Open file',
       ),
       item(
         Icons.calculate_outlined,
@@ -405,17 +552,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         false,
         () => showCalculatorDialog(context),
         small: true,
+        label: 'Calculator',
       ),
       item(Icons.fullscreen, 'Fullscreen', false, () async {
         final fs = await windowManager.isFullScreen();
         await windowManager.setFullScreen(!fs);
-      }, small: true),
+      }, small: true, label: 'Fullscreen'),
       item(
         Icons.settings_outlined,
         'Settings',
         false,
         () => showSettingsDialog(context),
         small: true,
+        label: 'Settings',
       ),
       item(
         Icons.info_outline,
@@ -423,12 +572,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         false,
         () => _showAbout(context),
         small: true,
+        label: 'About',
       ),
     ];
 
     return ShellCard(
       child: SizedBox(
-        width: 56,
+        width: labels ? 176 : 56,
         // Main views at the top, tools at the bottom, free space between.
         // Only a window too short for all of them scrolls, as a last resort.
         child: CustomScrollView(
