@@ -156,7 +156,7 @@ class _NoteListState extends State<NoteList> {
               const SizedBox(width: 6),
               Text(
                 'v$kAppVersion',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               ),
             ],
           ),
@@ -249,8 +249,17 @@ class _NoteListState extends State<NoteList> {
               ),
             ),
           ),
-        if (_query.isEmpty && controller.recentNotes.length > 1)
-          _RecentRow(notes: controller.recentNotes, onTap: controller.select),
+        // Notes already open are one click away in the tab strip, so "recent"
+        // is the ones that are not open — that is where the row earns its
+        // place. Hidden when there are none.
+        if (_query.isEmpty)
+          if (controller.recentNotes
+              .where(
+                (n) => !controller.openTabs.any((t) => t.path == n.path),
+              )
+              .toList()
+              case final closed when closed.isNotEmpty)
+            _RecentRow(notes: closed, onTap: controller.select),
         const SizedBox(height: 8),
         Expanded(
           child: ListView(
@@ -300,16 +309,33 @@ class _NoteListState extends State<NoteList> {
                               style: const TextStyle(fontSize: 13),
                               onDone: (v) => _finishProjectRename(e.key, v),
                             )
-                          : Text(
-                              '${e.key.toUpperCase()}   ${e.value.length}',
-                              style: TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.6,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withValues(alpha: 0.5),
-                              ),
+                          : Builder(
+                              builder: (context) {
+                                final style = TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.6,
+                                  color: Theme.of(context).colorScheme.onSurface
+                                      .withValues(alpha: 0.62),
+                                );
+                                // Name truncates, count stays beside it —
+                                // a long folder name used to push the count
+                                // onto its own line.
+                                return Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        e.key.toUpperCase(),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: style,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text('${e.value.length}', style: style),
+                                  ],
+                                );
+                              },
                             ),
                       trailing: PopupMenuButton<String>(
                         tooltip: 'Project menu',
@@ -535,28 +561,39 @@ class _RecentRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
+    // A wrapping block, not a sideways-scrolling strip: in the narrow sidebar
+    // the strip cut the second chip off mid-word with nothing to say more
+    // were hidden (and a mouse wheel can't scroll it). Every chip is whole,
+    // long titles end in an ellipsis, the full title is in the tooltip.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionLabel('Recent'),
-        SizedBox(
-          height: 30,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            itemCount: notes.take(8).length,
-            separatorBuilder: (_, _) => const SizedBox(width: 6),
-            itemBuilder: (context, i) {
-              final note = notes[i];
-              return ActionChip(
-                visualDensity: VisualDensity.compact,
-                labelPadding: const EdgeInsets.symmetric(horizontal: 2),
-                backgroundColor: accent.withValues(alpha: 0.10),
-                side: BorderSide(color: accent.withValues(alpha: 0.25)),
-                label: Text(note.title, style: const TextStyle(fontSize: 11)),
-                onPressed: () => onTap(note),
-              );
-            },
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final note in notes.take(6))
+                ActionChip(
+                  visualDensity: VisualDensity.compact,
+                  labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+                  backgroundColor: accent.withValues(alpha: 0.10),
+                  side: BorderSide(color: accent.withValues(alpha: 0.25)),
+                  tooltip: note.title,
+                  label: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 104),
+                    child: Text(
+                      note.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  ),
+                  onPressed: () => onTap(note),
+                ),
+            ],
           ),
         ),
       ],
@@ -573,7 +610,7 @@ class _SectionLabel extends StatelessWidget {
     // Uppercase, letter-spaced, muted — the v2.0 section header look.
     final muted = Theme.of(
       context,
-    ).colorScheme.onSurface.withValues(alpha: 0.45);
+    ).colorScheme.onSurface.withValues(alpha: 0.62);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Text(
@@ -676,11 +713,11 @@ class _NoteTile extends StatelessWidget {
                 hotAddedLabel(note.modified, DateTime.now()),
                 key: Key('note-stamp-${note.title}'),
                 style: TextStyle(
-                  fontSize: 9.5,
+                  fontSize: 10.5,
                   height: 1.1,
                   color: Theme.of(
                     context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.45),
+                  ).colorScheme.onSurface.withValues(alpha: 0.62),
                 ),
               ),
         trailing: PopupMenuButton<String>(

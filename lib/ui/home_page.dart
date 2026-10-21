@@ -63,6 +63,17 @@ class ShellCard extends StatelessWidget {
   }
 }
 
+/// Short hairline that separates the rail's groups (hot / views / tools).
+class _RailDivider extends StatelessWidget {
+  const _RailDivider();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 14),
+    child: Divider(height: 1, color: Theme.of(context).dividerColor),
+  );
+}
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -79,7 +90,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // service tools smaller.
   static const double _railHotIcon = 31.5;
   static const double _railMainIcon = 22;
-  static const double _railSmallIcon = 18;
+  static const double _railSmallIcon = 20;
 
   /// Desktop window (DragToMoveArea needs window_manager, which only runs
   /// on Windows and Linux here).
@@ -174,6 +185,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _quickSwitcher(context),
         const SingleActivator(LogicalKeyboardKey.keyR, control: true): () =>
             _refresh(context),
+        // Tabs: close the open note, cycle through the open ones.
+        const SingleActivator(LogicalKeyboardKey.keyW, control: true): () {
+          final c = context.read<VaultController>();
+          final path = c.current?.path;
+          if (path != null) c.closeTab(path);
+        },
+        const SingleActivator(LogicalKeyboardKey.tab, control: true): () =>
+            _cycleTab(context, 1),
+        const SingleActivator(
+          LogicalKeyboardKey.tab,
+          control: true,
+          shift: true,
+        ): () =>
+            _cycleTab(context, -1),
       },
       // Card-based v2.0 shell: floating rounded panels on the page colour.
       child: Scaffold(
@@ -222,6 +247,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  /// Ctrl+Tab / Ctrl+Shift+Tab: next / previous open note, wrapping round.
+  void _cycleTab(BuildContext context, int step) {
+    final c = context.read<VaultController>();
+    final tabs = c.openTabs;
+    if (tabs.length < 2) return;
+    final at = tabs.indexWhere((n) => n.path == c.current?.path);
+    c.select(tabs[(at + step) % tabs.length]);
   }
 
   Widget _rail(BuildContext context) {
@@ -302,7 +336,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           onPressed: () => _go(_MainView.hot),
         ),
       ),
-      const SizedBox(height: 6),
+      const _RailDivider(),
       item(
         Icons.description_outlined,
         'Notes',
@@ -414,6 +448,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           ? const DragToMoveArea(child: SizedBox.expand())
                           : const SizedBox.shrink(),
                     ),
+                    const _RailDivider(),
                     ...tools,
                   ],
                 ),
