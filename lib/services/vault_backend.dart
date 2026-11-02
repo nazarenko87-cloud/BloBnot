@@ -19,6 +19,11 @@ abstract interface class VaultBackend {
 
   Future<List<Note>> loadNotes();
   Future<Note> write(Note note);
+
+  /// The note as it is on disk now, when its file's modification time differs
+  /// from [Note.modified] — someone else may have written it. Null when the
+  /// time matches, the file is gone, or the backend cannot tell.
+  Future<Note?> readIfChanged(Note note);
   Future<Note> create(String title, {String? subfolder, String? body});
   Future<Note> rename(Note note, String newTitle);
   Future<void> delete(Note note);

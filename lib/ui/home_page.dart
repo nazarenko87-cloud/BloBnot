@@ -211,7 +211,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             DateTime.now().difference(away) >= _reloadAfterAway) {
           unawaited(controller.reload());
         }
-      case AppLifecycleState.inactive || AppLifecycleState.detached:
+      // A desktop window that lost focus: another app — or BloBnot on the
+      // other PC, through the synced folder — may change notes meanwhile.
+      case AppLifecycleState.inactive:
+        _backgroundedAt ??= DateTime.now();
+      case AppLifecycleState.detached:
         break;
     }
   }

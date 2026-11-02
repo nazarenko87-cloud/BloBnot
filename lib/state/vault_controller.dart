@@ -232,11 +232,40 @@ class VaultController extends ChangeNotifier {
   }
 
   Timer? _saveTimer;
+  Timer? _retryTimer;
   Timer? _reminderTimer;
 
+  static const _saveRetryDelay = Duration(seconds: 5);
+
+  /// Edits buffered but not yet on disk, by note path. Keyed by note rather
+  /// than "the current one", so switching notes — or a failed write — never
+  /// sends an edit to the wrong file or drops it.
+  final Map<String, Note> _pending = {};
+
   /// True while an edit is buffered but not yet written to disk.
-  bool _dirty = false;
-  bool get isDirty => _dirty;
+  bool get isDirty => _pending.isNotEmpty;
+
+  /// Disk text of a note as this app last read or wrote it. A file that no
+  /// longer holds it was changed by someone else (another PC, the MCP server).
+  final Map<String, String> _synced = {};
+
+  String? _saveError;
+
+  /// Why the last save failed, or null. The edit stays buffered and is
+  /// retried; the UI shows this on the save indicator.
+  String? get saveError => _saveError;
+
+  String? _conflictNotice;
+
+  /// Set when a note had also changed on disk and the other version was kept
+  /// as a conflict copy. The UI shows it once and calls [clearConflictNotice].
+  String? get conflictNotice => _conflictNotice;
+
+  void clearConflictNotice() {
+    if (_conflictNotice == null) return;
+    _conflictNotice = null;
+    notifyListeners();
+  }
 
   /// On launch: engage the lock if a password is set, then reopen the
   /// last-used vault if it still exists.
@@ -279,8 +308,12 @@ class VaultController extends ChangeNotifier {
     _loading = true;
     _openError = null;
     notifyListeners();
-    // Let queued hot-task saves reach the vault they were made in first.
+    // Let queued note and hot-task saves reach the vault they were made in.
+    await _flushPendingSave();
     await _hotWrites;
+    _pending.clear();
+    _synced.clear();
+    _saveError = null;
     try {
       _storage = openBackend(root);
       // Metadata lives alongside the vault on desktop, but app-private on
@@ -378,10 +411,10 @@ class VaultController extends ChangeNotifier {
     }
     final stripped = LineReminders.stripDue(note.body, now);
     if (stripped != null) {
-      _current = note.copyWith(body: stripped);
-      final idx = _notes.indexWhere((n) => n.path == note.path);
-      if (idx >= 0) _notes[idx] = _current!;
-      unawaited(_storage?.write(_current!));
+      _bufferEdit(note.copyWith(body: stripped));
+      unawaited(_flushPendingSave());
+    } else {
+      unawaited(_refreshFromDisk(note));
     }
     notifyListeners();
   }
@@ -389,26 +422,119 @@ class VaultController extends ChangeNotifier {
   /// Update the current note's body in memory and schedule a debounced save.
   void editCurrentBody(String body) {
     if (_current == null) return;
-    _current = _current!.copyWith(body: body);
-    final idx = _notes.indexWhere((n) => n.path == _current!.path);
-    if (idx >= 0) _notes[idx] = _current!;
-    _dirty = true;
+    _bufferEdit(_current!.copyWith(body: body));
     notifyListeners();
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 800), _flushPendingSave);
   }
 
+  /// Puts [edited] in memory and queues it for the next save.
+  void _bufferEdit(Note edited) {
+    final idx = _notes.indexWhere((n) => n.path == edited.path);
+    // The text before the first edit is what the file held.
+    if (idx >= 0) _synced.putIfAbsent(edited.path, () => _notes[idx].body);
+    if (idx >= 0) _notes[idx] = edited;
+    if (_current?.path == edited.path) _current = edited;
+    _pending[edited.path] = edited;
+  }
+
   Future<void> _flushPendingSave() async {
     _saveTimer?.cancel();
-    if (!_dirty || _storage == null || _current == null) return;
-    _dirty = false;
-    final saved = await _storage!.write(_current!);
-    _current = saved;
-    final idx = _notes.indexWhere((n) => n.path == saved.path);
-    if (idx >= 0) _notes[idx] = saved;
+    _retryTimer?.cancel();
+    final storage = _storage;
+    if (_pending.isEmpty || storage == null) return;
+    final batch = [..._pending.values];
+    _pending.clear();
+    Object? failure;
+    for (final note in batch) {
+      try {
+        await _keepExternalEdit(storage, note);
+        _applySaved(await _write(storage, note));
+      } on Exception catch (e) {
+        failure = e;
+        // An edit typed since this snapshot is newer; keep that one.
+        _pending.putIfAbsent(note.path, () => note);
+      }
+    }
+    if (failure != null) {
+      _saveError = 'Not saved: $failure';
+      if (!_disposed) _retryTimer = Timer(_saveRetryDelay, _flushPendingSave);
+    } else if (_pending.isEmpty) {
+      _saveError = null;
+    }
     // dispose() flushes a pending edit and does not wait for it; by the time
     // the write lands there may be nobody left to notify.
     _notifyIfAlive(); // flip the save indicator back to "Saved"
+  }
+
+  /// Writes [note] and records its text as what the file now holds.
+  Future<Note> _write(VaultBackend storage, Note note) async {
+    final saved = await storage.write(note);
+    _synced[saved.path] = saved.body;
+    return saved;
+  }
+
+  /// Takes a finished write into memory without undoing text typed while
+  /// it was in flight: a newer body only gets the new file time.
+  void _applySaved(Note saved) {
+    Note merge(Note n) =>
+        n.body == saved.body ? saved : n.copyWith(modified: saved.modified);
+    final idx = _notes.indexWhere((n) => n.path == saved.path);
+    if (idx >= 0) _notes[idx] = merge(_notes[idx]);
+    if (_current?.path == saved.path) _current = merge(_current!);
+    final queued = _pending[saved.path];
+    if (queued != null) _pending[saved.path] = merge(queued);
+  }
+
+  /// Before [note] overwrites its file: if someone else changed the file
+  /// since this app last read or wrote it, keep their text as a conflict
+  /// copy next to it, so neither version is lost.
+  Future<void> _keepExternalEdit(VaultBackend storage, Note note) async {
+    final disk = await storage.readIfChanged(note);
+    final known = _synced[note.path];
+    if (disk == null || known == null) return;
+    if (disk.body == known || disk.body == note.body) return;
+    final folder = storage.projectOf(note);
+    final now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final stamp =
+        '${now.year}-${two(now.month)}-${two(now.day)} '
+        '${two(now.hour)}-${two(now.minute)}';
+    final copy = await storage.create(
+      uniqueNoteTitle('${note.title} (conflict $stamp)', subfolder: folder),
+      subfolder: folder.isEmpty ? null : folder,
+      body: disk.body,
+    );
+    _notes
+      ..add(copy)
+      ..sort((a, b) => a.titleLower.compareTo(b.titleLower));
+    _conflictNotice =
+        '"${note.title}" was also changed elsewhere — '
+        'that version is kept as "${copy.title}"';
+  }
+
+  /// When a note is opened, take a newer copy of it from disk (written by
+  /// another device or app) — unless it has unsaved edits here.
+  Future<void> _refreshFromDisk(Note note) async {
+    final storage = _storage;
+    if (storage == null || _pending.containsKey(note.path)) return;
+    final Note? disk;
+    try {
+      disk = await storage.readIfChanged(note);
+    } on Exception {
+      return; // the copy in memory is still usable
+    }
+    if (disk == null || !identical(storage, _storage)) return;
+    if (_pending.containsKey(note.path)) return;
+    final idx = _notes.indexWhere((n) => n.path == note.path);
+    if (idx < 0 || _notes[idx].body != note.body) return;
+    _notes[idx] = disk;
+    _synced[disk.path] = disk.body;
+    if (_current?.path == disk.path) _current = disk;
+    if (disk.body != note.body) {
+      _reloadCount++; // the editor re-reads the text
+      _notifyIfAlive();
+    }
   }
 
   /// Every field name used in the vault, most used first (ties by name).
@@ -446,7 +572,7 @@ class VaultController extends ChangeNotifier {
     _notes[idx] = updated;
     if (_current?.path == path) _current = updated;
     notifyListeners();
-    final saved = await storage.write(updated);
+    final saved = await _write(storage, updated);
     final after = _notes.indexWhere((n) => n.path == path);
     if (after >= 0 && _notes[after].body == saved.body) _notes[after] = saved;
     if (_current?.path == path && _current!.body == saved.body) {
@@ -553,7 +679,10 @@ class VaultController extends ChangeNotifier {
     final lines = renamed.body.split('\n');
     if (lines.first.trim() == '# ${latest.title}') {
       lines[0] = '# $title';
-      renamed = await _storage!.write(renamed.copyWith(body: lines.join('\n')));
+      renamed = await _write(
+        _storage!,
+        renamed.copyWith(body: lines.join('\n')),
+      );
     }
     _moveNoteBookkeeping(latest, renamed);
     await _relinkNotes(latest.title, title, skipPath: renamed.path);
@@ -583,7 +712,7 @@ class VaultController extends ChangeNotifier {
       if (!n.outgoingLinks.any((l) => l.toLowerCase() == target)) continue;
       final body = n.body.replaceAll(link, '[[$to');
       if (body == n.body) continue;
-      _notes[i] = await _storage!.write(n.copyWith(body: body));
+      _notes[i] = await _write(_storage!, n.copyWith(body: body));
       if (_current?.path == n.path) _current = _notes[i];
     }
   }
@@ -777,13 +906,15 @@ class VaultController extends ChangeNotifier {
     _dueLineNote = null;
     _dueEventId = null;
     if (lineNote != null) {
-      final stripped = LineReminders.stripDue(lineNote.body, DateTime.now());
+      // The note may have been edited since the alert fired; strip from now.
+      final latest = _notes.firstWhere(
+        (n) => n.path == lineNote.path,
+        orElse: () => lineNote,
+      );
+      final stripped = LineReminders.stripDue(latest.body, DateTime.now());
       if (stripped != null) {
-        final updated = lineNote.copyWith(body: stripped);
-        final idx = _notes.indexWhere((n) => n.path == lineNote.path);
-        if (idx >= 0) _notes[idx] = updated;
-        if (_current?.path == lineNote.path) _current = updated;
-        await _storage?.write(updated);
+        _bufferEdit(latest.copyWith(body: stripped));
+        await _flushPendingSave();
       }
     } else if (eventId != null) {
       _events.removeWhere((e) => e.id == eventId);
@@ -874,6 +1005,7 @@ class VaultController extends ChangeNotifier {
   void dispose() {
     _flushPendingSave();
     _saveTimer?.cancel();
+    _retryTimer?.cancel();
     _reminderTimer?.cancel();
     _insertRequests.close();
     _disposed = true;

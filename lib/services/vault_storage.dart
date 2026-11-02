@@ -63,10 +63,41 @@ class VaultStorage implements VaultBackend {
   @override
   Future<Note> write(Note note) async {
     final f = File(note.path);
-    await f.parent.create(recursive: true);
-    await f.writeAsString(note.body);
+    await _replaceFile(f, note.body);
     final stat = await f.stat();
     return note.copyWith(modified: stat.modified);
+  }
+
+  @override
+  Future<Note?> readIfChanged(Note note) async {
+    final f = File(note.path);
+    if (!await f.exists()) return null;
+    final stat = await f.stat();
+    // Any difference counts, not only "newer": a sync client may keep the
+    // other device's (earlier) time on the file it brings down.
+    if (stat.modified == note.modified) return null;
+    return note.copyWith(body: await f.readAsString(), modified: stat.modified);
+  }
+
+  /// Writes [content] to a temp file beside [f] and renames it over [f], so
+  /// a crash or a sync client reading mid-write sees the old file or the new
+  /// one — never half of it.
+  static Future<void> _replaceFile(File f, String content) async {
+    await f.parent.create(recursive: true);
+    final tmp = File(p.join(f.parent.path, '.${p.basename(f.path)}.tmp'));
+    await tmp.writeAsString(content, flush: true);
+    try {
+      await tmp.rename(f.path);
+      return;
+    } on FileSystemException {
+      // Some file systems will not rename over an existing file; fall back
+      // to writing in place rather than failing the save.
+    }
+    try {
+      await f.writeAsString(content, flush: true);
+    } finally {
+      if (await tmp.exists()) await tmp.delete();
+    }
   }
 
   @override
@@ -229,9 +260,6 @@ class VaultStorage implements VaultBackend {
   }
 
   @override
-  Future<void> writeText(String relPath, String content) async {
-    final f = _fileAt(relPath);
-    await f.parent.create(recursive: true);
-    await f.writeAsString(content);
-  }
+  Future<void> writeText(String relPath, String content) =>
+      _replaceFile(_fileAt(relPath), content);
 }

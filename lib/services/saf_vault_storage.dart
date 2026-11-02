@@ -71,6 +71,11 @@ class SafVaultStorage implements VaultBackend {
     return note.copyWith(modified: DateTime.now());
   }
 
+  /// SAF writes do not report the file's real modification time (see
+  /// [write]), so a change by someone else cannot be told from our own.
+  @override
+  Future<Note?> readIfChanged(Note note) async => null;
+
   @override
   Future<Note> create(String title, {String? subfolder, String? body}) async {
     final rel = (subfolder == null || subfolder.isEmpty)

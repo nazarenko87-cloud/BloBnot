@@ -159,6 +159,20 @@ class _EditorPaneState extends State<EditorPane> {
 
   int _loadedReload = 0;
 
+  /// A note also changed on another device: say where the other version
+  /// went, once, after this frame.
+  void _showConflictNotice(VaultController controller) {
+    final notice = controller.conflictNotice;
+    if (notice == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || controller.conflictNotice != notice) return;
+      controller.clearConflictNotice();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(notice), duration: const Duration(seconds: 8)),
+      );
+    });
+  }
+
   /// Sync the text field when the selected note changes (but not on our own
   /// edits, which would move the cursor) — or when the vault was re-read and
   /// the file may hold a newer copy from another device. A reload writes any
@@ -195,6 +209,7 @@ class _EditorPaneState extends State<EditorPane> {
     final controller = context.watch<VaultController>();
     final note = controller.current;
     _syncFrom(note, controller.reloadCount, dirty: controller.isDirty);
+    _showConflictNotice(controller);
 
     if (note == null) {
       return const Center(child: Text('No note selected'));
@@ -584,16 +599,26 @@ class _EditorPaneState extends State<EditorPane> {
                       ),
                     ),
                     // Save indicator (icon-only; label in the tooltip).
-                    Tooltip(
-                      message: controller.isDirty ? 'Saving…' : 'Saved',
-                      child: Icon(
-                        controller.isDirty ? Icons.sync : Icons.check_circle,
-                        size: 13,
-                        color: controller.isDirty
-                            ? Colors.grey.shade500
-                            : Theme.of(context).colorScheme.primary,
+                    if (controller.saveError case final error?)
+                      Tooltip(
+                        message: '$error\nRetrying…',
+                        child: Icon(
+                          Icons.error_outline,
+                          size: 13,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      )
+                    else
+                      Tooltip(
+                        message: controller.isDirty ? 'Saving…' : 'Saved',
+                        child: Icon(
+                          controller.isDirty ? Icons.sync : Icons.check_circle,
+                          size: 13,
+                          color: controller.isDirty
+                              ? Colors.grey.shade500
+                              : Theme.of(context).colorScheme.primary,
+                        ),
                       ),
-                    ),
                   ],
                 ),
                 // Copyable file path (v1.3): click puts it on the clipboard.
