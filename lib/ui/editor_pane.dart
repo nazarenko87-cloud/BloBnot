@@ -21,6 +21,7 @@ import '../utils/editor_ops.dart';
 import '../utils/line_reminders.dart';
 import '../utils/markdown_highlight.dart';
 import '../utils/properties.dart';
+import 'focus_mode.dart';
 import 'sticker_picker.dart';
 import 'theme.dart';
 
@@ -280,25 +281,30 @@ class _EditorPaneState extends State<EditorPane> {
               ),
             ),
           );
+          // Focus mode keeps the text and its header; panels and the toolbar
+          // go (the shortcuts — Ctrl+B, Ctrl+I, Ctrl+K — still work).
+          final focus = FocusModeScope.maybeOf(context)?.active ?? false;
           final rest = [
             if (_findVisible) _findBar(context),
             const Divider(height: 1),
             body,
-            _BacklinksPanel(note: note),
-            _AttachmentsPanel(
-              note: note,
-              onAttach: () => _attachFile(context),
-              onDeleted: (name) => _setBody(
-                AttachmentStore.stripLink(_textController.text, name),
+            if (!focus) ...[
+              _BacklinksPanel(note: note),
+              _AttachmentsPanel(
+                note: note,
+                onAttach: () => _attachFile(context),
+                onDeleted: (name) => _setBody(
+                  AttachmentStore.stripLink(_textController.text, name),
+                ),
               ),
-            ),
+            ],
           ];
           // Thumb-reachable: on a phone the formatting toolbar sits at the
           // bottom instead of just under the header.
           final isMobile = MediaQuery.sizeOf(context).width < kMobileBreakpoint;
           return [
             _header(context, controller, note),
-            if (!isMobile) toolbar,
+            if (!isMobile && !focus) toolbar,
             ...rest,
             if (isMobile) toolbar,
           ];
@@ -558,179 +564,200 @@ class _EditorPaneState extends State<EditorPane> {
   static const double _headerIconSize = 27.6;
   static const double _modeIconSize = 20.7;
 
+  /// Below this header width the word count and status icons are dropped.
+  static const double _metaMinWidth = 400;
+
   Widget _header(BuildContext context, VaultController controller, Note note) {
     final reminder = controller.reminderFor(note.title);
     // On mobile the note title already sits in the AppBar — showing it again
     // here would just duplicate it and burn scarce vertical space.
     final isMobile = MediaQuery.sizeOf(context).width < kMobileBreakpoint;
     final shell = Theme.of(context).extension<ShellStyle>();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 12, 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (!isMobile)
-                  Text(
-                    note.title,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      fontFamily: shell?.serifTitles ?? false
-                          ? 'Georgia'
-                          : null,
-                      fontFamilyFallback: shell?.serifTitles ?? false
-                          ? kMastheadFontFallback
-                          : null,
-                    ),
-                  ),
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 8,
-                  children: [
-                    Text(
-                      '${note.wordCount} words · ${note.readMinutes} min'
-                      '${reminder != null ? '  ·  🔔 ${_fmt(reminder)}' : ''}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade500,
+    final focus = FocusModeScope.maybeOf(context);
+    final muted = Colors.grey.shade500;
+    // One line: title, then the small facts after it. The file path used to
+    // take a line of its own; it is in the copy button's tooltip now.
+    final meta = [
+      Flexible(
+        child: Text(
+          '${note.wordCount} words · ${note.readMinutes} min'
+          '${reminder != null ? '  ·  🔔 ${_fmt(reminder)}' : ''}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 12, color: muted),
+        ),
+      ),
+      // Save indicator (icon-only; label in the tooltip).
+      if (controller.saveError case final error?)
+        Tooltip(
+          message: '$error\nRetrying…',
+          child: Icon(
+            Icons.error_outline,
+            size: 13,
+            color: Theme.of(context).colorScheme.error,
+          ),
+        )
+      else
+        Tooltip(
+          message: controller.isDirty ? 'Saving…' : 'Saved',
+          child: Icon(
+            controller.isDirty ? Icons.sync : Icons.check_circle,
+            size: 13,
+            color: controller.isDirty
+                ? muted
+                : Theme.of(context).colorScheme.primary,
+          ),
+        ),
+      // Copyable file path (v1.3): click puts it on the clipboard.
+      Tooltip(
+        message:
+            '${_breadcrumb(controller.vaultRoot, note.path)}\n'
+            'Click to copy the file path',
+        child: InkWell(
+          key: const Key('copy-note-path'),
+          borderRadius: BorderRadius.circular(4),
+          onTap: () async {
+            await Clipboard.setData(ClipboardData(text: note.path));
+            if (context.mounted) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text('Path copied')));
+            }
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(2),
+            child: Icon(Icons.copy, size: 12, color: muted),
+          ),
+        ),
+      ),
+    ];
+    // The focus button only where the header has room for it.
+    return LayoutBuilder(
+      builder: (context, box) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 6, 8, 2),
+        child: Row(
+          children: [
+            // Title and facts share what the buttons leave; both shorten
+            // with an ellipsis rather than push the buttons off the card. A
+            // very narrow card keeps the title alone.
+            Expanded(
+              child: Row(
+                children: [
+                  if (!isMobile)
+                    Flexible(
+                      flex: 3,
+                      child: Text(
+                        note.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: shell?.serifTitles ?? false
+                              ? 'Georgia'
+                              : null,
+                          fontFamilyFallback: shell?.serifTitles ?? false
+                              ? kMastheadFontFallback
+                              : null,
+                        ),
                       ),
                     ),
-                    // Save indicator (icon-only; label in the tooltip).
-                    if (controller.saveError case final error?)
-                      Tooltip(
-                        message: '$error\nRetrying…',
-                        child: Icon(
-                          Icons.error_outline,
-                          size: 13,
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      )
-                    else
-                      Tooltip(
-                        message: controller.isDirty ? 'Saving…' : 'Saved',
-                        child: Icon(
-                          controller.isDirty ? Icons.sync : Icons.check_circle,
-                          size: 13,
-                          color: controller.isDirty
-                              ? Colors.grey.shade500
-                              : Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
+                  if (isMobile || box.maxWidth >= _metaMinWidth) ...[
+                    if (!isMobile) const SizedBox(width: 12),
+                    for (final m in meta) ...[m, const SizedBox(width: 6)],
                   ],
+                ],
+              ),
+            ),
+            if (focus != null && (focus.active || box.maxWidth >= 560))
+              IconButton(
+                key: const Key('focus-toggle'),
+                tooltip: focus.active
+                    ? 'Leave focus mode (Esc)'
+                    : 'Focus mode (Ctrl+.)',
+                icon: Icon(
+                  focus.active ? Icons.close_fullscreen : Icons.open_in_full,
+                  size: 20,
                 ),
-                // Copyable file path (v1.3): click puts it on the clipboard.
-                InkWell(
-                  onTap: () async {
-                    await Clipboard.setData(ClipboardData(text: note.path));
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Path copied')),
-                      );
-                    }
-                  },
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          _breadcrumb(controller.vaultRoot, note.path),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primary.withValues(alpha: 0.8),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.copy, size: 11, color: Colors.grey.shade500),
-                    ],
+                onPressed: focus.toggle,
+              ),
+            PopupMenuButton<String>(
+              tooltip: 'Reminders',
+              iconSize: _headerIconSize,
+              icon: Icon(
+                reminder == null
+                    ? Icons.notifications_none
+                    : Icons.notifications_active,
+                color: reminder == null
+                    ? null
+                    : Theme.of(context).colorScheme.primary,
+              ),
+              onSelected: (v) => switch (v) {
+                'note' => _editReminder(context, controller, note, reminder),
+                'line' => _insertLineReminder(context),
+                _ => null,
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'note',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.sticky_note_2_outlined, size: 18),
+                    title: Text('Reminder on note'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'line',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.alarm_add, size: 18),
+                    title: Text('Reminder on line (at cursor)'),
                   ),
                 ),
               ],
             ),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'Reminders',
-            iconSize: _headerIconSize,
-            icon: Icon(
-              reminder == null
-                  ? Icons.notifications_none
-                  : Icons.notifications_active,
-              color: reminder == null
-                  ? null
-                  : Theme.of(context).colorScheme.primary,
-            ),
-            onSelected: (v) => switch (v) {
-              'note' => _editReminder(context, controller, note, reminder),
-              'line' => _insertLineReminder(context),
-              _ => null,
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: 'note',
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.sticky_note_2_outlined, size: 18),
-                  title: Text('Reminder on note'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'line',
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.alarm_add, size: 18),
-                  title: Text('Reminder on line (at cursor)'),
-                ),
-              ),
-            ],
-          ),
-          // Bounded so the FittedBox actually scales it down on narrow cards.
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 152),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerRight,
-              child: SegmentedButton<ViewMode>(
-                // Side by side has no room on a phone.
-                segments: [
-                  const ButtonSegment(
-                    value: ViewMode.edit,
-                    icon: Icon(Icons.edit),
-                    tooltip: 'Edit',
-                  ),
-                  if (!isMobile)
+            // Bounded so the FittedBox actually scales it down on narrow cards.
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 152),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: SegmentedButton<ViewMode>(
+                  // Side by side has no room on a phone.
+                  segments: [
                     const ButtonSegment(
-                      value: ViewMode.split,
-                      icon: Icon(Icons.vertical_split),
-                      tooltip: 'Edit and preview side by side',
+                      value: ViewMode.edit,
+                      icon: Icon(Icons.edit),
+                      tooltip: 'Edit',
                     ),
-                  const ButtonSegment(
-                    value: ViewMode.preview,
-                    icon: Icon(Icons.visibility),
-                    tooltip: 'Preview',
+                    if (!isMobile)
+                      const ButtonSegment(
+                        value: ViewMode.split,
+                        icon: Icon(Icons.vertical_split),
+                        tooltip: 'Edit and preview side by side',
+                      ),
+                    const ButtonSegment(
+                      value: ViewMode.preview,
+                      icon: Icon(Icons.visibility),
+                      tooltip: 'Preview',
+                    ),
+                  ],
+                  selected: {
+                    isMobile && _mode == ViewMode.split ? ViewMode.edit : _mode,
+                  },
+                  showSelectedIcon: false,
+                  style: const ButtonStyle(
+                    iconSize: WidgetStatePropertyAll(_modeIconSize),
+                    minimumSize: WidgetStatePropertyAll(Size(0, 46)),
                   ),
-                ],
-                selected: {
-                  isMobile && _mode == ViewMode.split ? ViewMode.edit : _mode,
-                },
-                showSelectedIcon: false,
-                style: const ButtonStyle(
-                  iconSize: WidgetStatePropertyAll(_modeIconSize),
-                  minimumSize: WidgetStatePropertyAll(Size(0, 46)),
+                  onSelectionChanged: (s) => setState(() => _mode = s.first),
                 ),
-                onSelectionChanged: (s) => setState(() => _mode = s.first),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

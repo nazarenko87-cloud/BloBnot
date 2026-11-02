@@ -80,7 +80,7 @@ void main() {
     expect(flame, greaterThan(30));
     expect(notes, greaterThan(settings));
     expect(iconSize(Icons.table_chart_outlined), notes);
-    expect(iconSize(Icons.calculate_outlined), settings);
+    expect(iconSize(Icons.more_horiz), settings);
 
     await cleanUp(tester);
   });

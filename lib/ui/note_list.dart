@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../main.dart' show kAppVersion;
 import '../models/note.dart';
 import '../state/vault_controller.dart';
 import 'glyph_avatar.dart';
@@ -9,7 +8,6 @@ import 'hot_tasks_view.dart' show hotAddedLabel;
 import 'inline_editor.dart';
 import 'note_dialogs.dart';
 import 'pulse.dart';
-import 'theme.dart';
 
 class NoteList extends StatefulWidget {
   const NoteList({
@@ -85,9 +83,6 @@ class _NoteListState extends State<NoteList> {
   Widget build(BuildContext context) {
     final controller = context.watch<VaultController>();
     final accent = Theme.of(context).colorScheme.primary;
-    final shell =
-        Theme.of(context).extension<ShellStyle>() ??
-        const ShellStyle(flat: false, radius: kCardRadius);
     final q = _query.toLowerCase();
     final filtered =
         controller.notes
@@ -119,51 +114,10 @@ class _NoteListState extends State<NoteList> {
 
     return Column(
       children: [
-        // Logo header (v2.0 look).
+        // Search + round add button. The app mark lives on the rail; a
+        // second logo here only took room from the list.
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 12, 10),
-          child: Row(
-            children: [
-              Container(
-                width: 26,
-                height: 26,
-                decoration: BoxDecoration(
-                  color: accent,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  'B',
-                  style: TextStyle(
-                    color: onAccent(accent),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'BloBnot',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  fontFamily: shell.serifTitles ? 'Georgia' : null,
-                  fontFamilyFallback: shell.serifTitles
-                      ? kMastheadFontFallback
-                      : null,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'v$kAppVersion',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-              ),
-            ],
-          ),
-        ),
-        // Search + round add button.
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 12, 8),
+          padding: const EdgeInsets.fromLTRB(16, 14, 12, 8),
           child: Row(
             children: [
               Expanded(
@@ -254,10 +208,10 @@ class _NoteListState extends State<NoteList> {
         // place. Hidden when there are none.
         if (_query.isEmpty)
           if (controller.recentNotes
-              .where(
-                (n) => !controller.openTabs.any((t) => t.path == n.path),
-              )
-              .toList()
+                  .where(
+                    (n) => !controller.openTabs.any((t) => t.path == n.path),
+                  )
+                  .toList()
               case final closed when closed.isNotEmpty)
             _RecentRow(notes: closed, onTap: controller.select),
         const SizedBox(height: 8),
@@ -552,15 +506,33 @@ class _NoteListState extends State<NoteList> {
   }
 }
 
-class _RecentRow extends StatelessWidget {
+class _RecentRow extends StatefulWidget {
   const _RecentRow({required this.notes, required this.onTap});
 
   final List<Note> notes;
   final void Function(Note) onTap;
 
   @override
+  State<_RecentRow> createState() => _RecentRowState();
+}
+
+class _RecentRowState extends State<_RecentRow> {
+  /// Folded by default: the chips took four rows of the list. Kept for the
+  /// rest of the session once opened.
+  static bool _open = false;
+
+  @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
+    final muted = Theme.of(
+      context,
+    ).colorScheme.onSurface.withValues(alpha: 0.62);
+    final label = TextStyle(
+      fontSize: 10.5,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 0.8,
+      color: muted,
+    );
     // A wrapping block, not a sideways-scrolling strip: in the narrow sidebar
     // the strip cut the second chip off mid-word with nothing to say more
     // were hidden (and a mouse wheel can't scroll it). Every chip is whole,
@@ -568,34 +540,53 @@ class _RecentRow extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionLabel('Recent'),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final note in notes.take(6))
-                ActionChip(
-                  visualDensity: VisualDensity.compact,
-                  labelPadding: const EdgeInsets.symmetric(horizontal: 2),
-                  backgroundColor: accent.withValues(alpha: 0.10),
-                  side: BorderSide(color: accent.withValues(alpha: 0.25)),
-                  tooltip: note.title,
-                  label: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 104),
-                    child: Text(
-                      note.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                  ),
-                  onPressed: () => onTap(note),
+        InkWell(
+          key: const Key('recent-toggle'),
+          onTap: () => setState(() => _open = !_open),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 12, 4),
+            child: Row(
+              children: [
+                Text('RECENT', style: label),
+                Text('  ${widget.notes.length}', style: label),
+                const Spacer(),
+                Icon(
+                  _open ? Icons.expand_less : Icons.expand_more,
+                  size: 16,
+                  color: muted,
                 ),
-            ],
+              ],
+            ),
           ),
         ),
+        if (_open)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final note in widget.notes.take(6))
+                  ActionChip(
+                    visualDensity: VisualDensity.compact,
+                    labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+                    backgroundColor: accent.withValues(alpha: 0.10),
+                    side: BorderSide(color: accent.withValues(alpha: 0.25)),
+                    tooltip: note.title,
+                    label: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 104),
+                      child: Text(
+                        note.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                    ),
+                    onPressed: () => widget.onTap(note),
+                  ),
+              ],
+            ),
+          ),
       ],
     );
   }

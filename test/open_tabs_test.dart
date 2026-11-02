@@ -132,6 +132,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('RECENT'), findsOneWidget);
+    // Folded by default; one tap shows the chips.
+    expect(find.byType(ActionChip), findsNothing);
+    await tester.tap(find.byKey(const Key('recent-toggle')));
+    await tester.pump();
     expect(
       find.widgetWithText(ActionChip, notes[0].title),
       findsOneWidget,

@@ -14,6 +14,7 @@ import '../state/external_files_controller.dart';
 import '../state/vault_controller.dart';
 import 'dashboard.dart';
 import 'editor_pane.dart';
+import 'focus_mode.dart';
 import 'external_file_view.dart';
 import 'graph_view.dart';
 import 'calculator_dialog.dart';
@@ -164,9 +165,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   static const _reloadAfterAway = Duration(seconds: 10);
   DateTime? _backgroundedAt;
 
-  /// Rail shows a text label beside each icon. On by default; the chevron at
-  /// the top collapses it to icons only, and the choice is remembered.
-  bool _railLabels = true;
+  /// Rail shows a text label beside each icon. Off by default — the labels
+  /// cost the note 120px of width; the chevron at the top brings them back,
+  /// and the choice is remembered.
+  bool _railLabels = false;
+
+  /// Focus mode: only the note's text (see [FocusModeScope]).
+  bool _focus = false;
+
+  void _toggleFocus() => setState(() {
+    _focus = !_focus;
+    if (_focus) _view = _MainView.notes;
+  });
 
   @override
   void initState() {
@@ -282,51 +292,75 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           shift: true,
         ): () =>
             _cycleTab(context, -1),
+        const CtrlPeriodKeyActivator(): _toggleFocus,
+        if (_focus)
+          const SingleActivator(LogicalKeyboardKey.escape): _toggleFocus,
       },
-      // Card-based v2.0 shell: floating rounded panels on the page colour.
-      child: Scaffold(
-        body: Padding(
-          padding: const EdgeInsets.all(kShellGap),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _rail(context),
-              const SizedBox(width: kShellGap),
-              Expanded(
-                child: switch (_view) {
-                  _MainView.hot => HotTasksView(
-                    card: (child) => ShellCard(child: child),
-                  ),
-                  _MainView.table => NoteTableView(
-                    card: (child) => ShellCard(child: child),
-                    onOpenNote: _showNotes,
-                  ),
-                  _MainView.dashboard => ShellCard(
-                    child: DashboardView(onOpenNote: _showNotes),
-                  ),
-                  _MainView.notes => Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (_showList) ...[
-                        SizedBox(
-                          width: 260,
-                          child: ShellCard(
-                            child: NoteList(
-                              onNew: () => _newNote(context),
-                              onNewInProject: (project) =>
-                                  _newNote(context, initialProject: project),
-                            ),
+      // A focus node of its own, so the shortcuts above also work while
+      // nothing inside (no text field) holds the keyboard focus.
+      child: Focus(
+        autofocus: true,
+        child: FocusModeScope(
+          active: _focus,
+          toggle: _toggleFocus,
+          child: _focus ? _focusLayout() : _shell(context),
+        ),
+      ),
+    );
+  }
+
+  /// Focus mode: the open note alone, edge to edge.
+  Widget _focusLayout() => const Scaffold(
+    body: Padding(
+      padding: EdgeInsets.all(kShellGap),
+      child: ShellCard(child: EditorPane()),
+    ),
+  );
+
+  Widget _shell(BuildContext context) {
+    // Card-based v2.0 shell: floating rounded panels on the page colour.
+    return Scaffold(
+      body: Padding(
+        padding: const EdgeInsets.all(kShellGap),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _rail(context),
+            const SizedBox(width: kShellGap),
+            Expanded(
+              child: switch (_view) {
+                _MainView.hot => HotTasksView(
+                  card: (child) => ShellCard(child: child),
+                ),
+                _MainView.table => NoteTableView(
+                  card: (child) => ShellCard(child: child),
+                  onOpenNote: _showNotes,
+                ),
+                _MainView.dashboard => ShellCard(
+                  child: DashboardView(onOpenNote: _showNotes),
+                ),
+                _MainView.notes => Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_showList) ...[
+                      SizedBox(
+                        width: 260,
+                        child: ShellCard(
+                          child: NoteList(
+                            onNew: () => _newNote(context),
+                            onNewInProject: (project) =>
+                                _newNote(context, initialProject: project),
                           ),
                         ),
-                        const SizedBox(width: kShellGap),
-                      ],
-                      Expanded(child: _editorAndGraph(context)),
+                      ),
+                      const SizedBox(width: kShellGap),
                     ],
-                  ),
-                },
-              ),
-            ],
-          ),
+                    Expanded(child: _editorAndGraph(context)),
+                  ],
+                ),
+              },
+            ),
+          ],
         ),
       ),
     );
@@ -480,22 +514,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         ),
       const _RailDivider(),
+      // One entry for notes: from another view it opens them, and on the
+      // notes view it shows or hides the list (was a second rail item).
       item(
         Icons.description_outlined,
-        'Notes',
+        _view != _MainView.notes
+            ? 'Notes'
+            : (_showList ? 'Notes — hide the list' : 'Notes — show the list'),
         _view == _MainView.notes,
-        _showNotes,
+        () => _view == _MainView.notes
+            ? setState(() => _showList = !_showList)
+            : _showNotes(),
         label: 'Notes',
-      ),
-      item(
-        Icons.view_sidebar_outlined,
-        _showList ? 'Hide notes list' : 'Show notes list',
-        _showList,
-        () => setState(() {
-          _showList = !_showList;
-          _view = _MainView.notes;
-        }),
-        label: 'Notes list',
       ),
       item(
         Icons.dashboard_outlined,
@@ -535,34 +565,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         label: 'Graph',
       ),
       item(
-        Icons.refresh,
-        'Refresh notes from disk (Ctrl+R)',
-        false,
-        () => _refresh(context),
-        small: true,
-        label: 'Refresh',
-      ),
-      item(
-        Icons.file_open_outlined,
-        'Open file (.txt / .md)',
-        false,
-        () => _openExternalFile(context),
-        small: true,
-        label: 'Open file',
-      ),
-      item(
-        Icons.calculate_outlined,
-        'Calculator',
-        false,
-        () => showCalculatorDialog(context),
-        small: true,
-        label: 'Calculator',
-      ),
-      item(Icons.fullscreen, 'Fullscreen', false, () async {
-        final fs = await windowManager.isFullScreen();
-        await windowManager.setFullScreen(!fs);
-      }, small: true, label: 'Fullscreen'),
-      item(
         Icons.settings_outlined,
         'Settings',
         false,
@@ -570,13 +572,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         small: true,
         label: 'Settings',
       ),
-      item(
-        Icons.info_outline,
-        'About',
-        false,
-        () => _showAbout(context),
-        small: true,
-        label: 'About',
+      // Commands used now and then: one menu instead of five rail rows.
+      Builder(
+        builder: (context) => item(
+          Icons.more_horiz,
+          'More',
+          false,
+          () => _moreMenu(context),
+          small: true,
+          label: 'More',
+        ),
       ),
     ];
 
@@ -612,6 +617,71 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  Future<void> _moreMenu(BuildContext anchor) async {
+    final box = anchor.findRenderObject()! as RenderBox;
+    final overlay = Overlay.of(anchor).context.findRenderObject()! as RenderBox;
+    final at = box.localToGlobal(
+      box.size.topRight(Offset.zero),
+      ancestor: overlay,
+    );
+    PopupMenuItem<VoidCallback> entry(
+      IconData icon,
+      String text,
+      VoidCallback run, {
+      String? shortcut,
+    }) => PopupMenuItem(
+      value: run,
+      child: ListTile(
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(icon, size: 18),
+        title: Text(text),
+        trailing: shortcut == null
+            ? null
+            : Text(shortcut, style: TextStyle(color: Colors.grey.shade500)),
+      ),
+    );
+    final run = await showMenu<VoidCallback>(
+      context: anchor,
+      position: RelativeRect.fromLTRB(
+        at.dx + 4,
+        at.dy - 280,
+        overlay.size.width - at.dx,
+        0,
+      ),
+      items: [
+        entry(
+          Icons.open_in_full,
+          'Focus mode',
+          _toggleFocus,
+          shortcut: 'Ctrl+.',
+        ),
+        entry(
+          Icons.refresh,
+          'Refresh from disk',
+          () => _refresh(context),
+          shortcut: 'Ctrl+R',
+        ),
+        entry(
+          Icons.file_open_outlined,
+          'Open file (.txt / .md)',
+          () => _openExternalFile(context),
+        ),
+        entry(
+          Icons.calculate_outlined,
+          'Calculator',
+          () => showCalculatorDialog(context),
+        ),
+        entry(Icons.fullscreen, 'Fullscreen', () async {
+          final fs = await windowManager.isFullScreen();
+          await windowManager.setFullScreen(!fs);
+        }),
+        entry(Icons.info_outline, 'About', () => _showAbout(context)),
+      ],
+    );
+    run?.call();
   }
 
   /// Phone layout: a Keep-style card list (see [MobileHome]); notes and
