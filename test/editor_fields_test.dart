@@ -6,6 +6,7 @@ import 'package:blobnot/state/external_files_controller.dart';
 import 'package:blobnot/state/vault_controller.dart';
 import 'package:blobnot/ui/home_page.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -84,6 +85,50 @@ void main() {
     expect(find.text('needs fixes'), findsOneWidget);
     // The fence lines are not rendered as text.
     expect(find.textContaining('status: needs fixes'), findsNothing);
+    await cleanUp(tester);
+  });
+
+  testWidgets('preview text copies across paragraphs; checkboxes still tick', (
+    tester,
+  ) async {
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await pumpWith(tester, '# Report\nFirst part.\n\nSecond part.\n- [ ] item');
+    await tester.tap(find.byTooltip('Preview'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('preview-selection')), findsOneWidget);
+
+    // The box is the first glyph of the item's line ("☐ item").
+    final box = find.textContaining('☐', findRichText: true);
+    await tester.tapAt(tester.getTopLeft(box) + const Offset(5, 8));
+    await tester.pumpAndSettle();
+    expect(controller.current!.body, endsWith('- [x] item'));
+
+    await tester.tapAt(
+      tester.getCenter(find.textContaining('First', findRichText: true)),
+    );
+    await tester.pump();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(copied, contains('First part.'));
+    expect(copied, contains('Second part.'));
     await cleanUp(tester);
   });
 }

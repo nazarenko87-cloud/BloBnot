@@ -1086,13 +1086,19 @@ class _EditorPaneState extends State<EditorPane> {
       maxScaleFactor: scale,
       child: _readable(
         settings,
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (front.properties.isNotEmpty)
-              _PropertiesCard(properties: front.properties),
-            Expanded(child: _markdown(rendered, source)),
-          ],
+        // One selection over the whole preview, so a drag runs across
+        // paragraphs, lists and headings and Ctrl+C / right-click copies it.
+        // Markdown's own `selectable` makes each block a separate field.
+        SelectionArea(
+          key: const Key('preview-selection'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (front.properties.isNotEmpty)
+                _PropertiesCard(properties: front.properties),
+              Expanded(child: _markdown(rendered, source)),
+            ],
+          ),
         ),
       ),
     );
@@ -1101,7 +1107,6 @@ class _EditorPaneState extends State<EditorPane> {
   Widget _markdown(String rendered, String source) {
     return Markdown(
       data: rendered,
-      selectable: true,
       padding: const EdgeInsets.all(16),
       extensionSet: md.ExtensionSet.gitHubFlavored,
       onTapLink: (text, href, title) {
