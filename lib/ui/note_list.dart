@@ -445,7 +445,20 @@ class _NoteListState extends State<NoteList> {
       ),
     );
     if (ok == true && context.mounted) {
-      await context.read<VaultController>().deleteProject(project);
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      try {
+        await context.read<VaultController>().deleteProject(project);
+      } on Exception catch (e) {
+        messenger?.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Could not delete the whole project: $e. '
+              'Notes already moved are in the Archive; try again.',
+            ),
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      }
     }
   }
 

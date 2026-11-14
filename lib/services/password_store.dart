@@ -20,8 +20,9 @@ class PasswordStore {
     // Throws [UnreadableFileException] when the file is there but locked:
     // "no password" must never be concluded from a failed read, or the lock
     // screen would be skipped and the next write would erase the hash.
-    final raw = await readJsonFile(await _file);
-    return raw is Map<String, dynamic> ? raw : {};
+    // A damaged file still yields whatever pairs survive in it, so a
+    // half-written file cannot turn into "no password set" either.
+    return readJsonObjectLenient(await _file);
   }
 
   Future<void> _write(Map<String, dynamic> data) async {

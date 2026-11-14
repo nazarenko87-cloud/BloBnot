@@ -140,8 +140,9 @@ class AppSettings {
 
   static Future<Map<String, dynamic>> _read() async {
     // Throws when the file exists but cannot be read — see [setLastVault].
-    final raw = await readJsonFile(await _resolve());
-    return raw is Map<String, dynamic> ? raw : {};
+    // Lenient: the same file holds the launch password, and a rewrite must
+    // carry over whatever can still be read from a damaged copy.
+    return readJsonObjectLenient(await _resolve());
   }
 
   static Future<String?> lastVault() async {

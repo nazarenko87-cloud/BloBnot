@@ -23,6 +23,8 @@ import '../utils/line_reminders.dart';
 import '../utils/properties.dart';
 
 part 'vault_hot_tasks.dart';
+part 'vault_reminders.dart';
+part 'vault_tabs.dart';
 
 /// Single source of truth for the open vault: notes, selection, theme,
 /// reminders and the launch-password lock.
@@ -99,15 +101,6 @@ class VaultController extends ChangeNotifier {
   // A view, not a copy: this getter is read on every rebuild.
   List<Note> get notes => UnmodifiableListView(_notes);
 
-  /// Recently opened notes that are not open as a tab right now.
-  List<Note> get recentNotClosed {
-    final open = _openPaths.toSet();
-    return [
-      for (final n in recentNotes)
-        if (!open.contains(n.path)) n,
-    ];
-  }
-
   /// Notes the last load had to skip because their files could not be read.
   String? _loadWarning;
   String? get loadWarning => _loadWarning;
@@ -156,43 +149,6 @@ class VaultController extends ChangeNotifier {
   List<CalendarEvent> get events => List.unmodifiable(_events);
   List<String> get projects =>
       List.unmodifiable(ProjectOrderStore.applyOrder(_projects, _projectOrder));
-
-  /// Recently opened notes (most-recent first) that still exist.
-  List<Note> get recentNotes {
-    final byTitle = {for (final n in _notes) n.title: n};
-    return [
-      for (final t in _recent)
-        if (byTitle[t] != null) byTitle[t]!,
-    ];
-  }
-
-  /// Notes currently open as tabs, in tab order.
-  List<Note> get openTabs {
-    final byPath = {for (final n in _notes) n.path: n};
-    return [
-      for (final p in _openPaths)
-        if (byPath[p] != null) byPath[p]!,
-    ];
-  }
-
-  void closeTab(String path) {
-    if (!_openPaths.remove(path)) return;
-    if (_current?.path == path) {
-      final next = _openPaths.isNotEmpty ? _openPaths.last : null;
-      Note? found;
-      if (next != null) {
-        for (final n in _notes) {
-          if (n.path == next) {
-            found = n;
-            break;
-          }
-        }
-      }
-      // _notes.first as a fallback would throw StateError on an empty vault.
-      _current = found ?? (_notes.isNotEmpty ? _notes.first : null);
-    }
-    notifyListeners();
-  }
 
   String projectOf(Note note) => _storage?.projectOf(note) ?? '';
   int? colorOf(String project) => _projectColors[project];
@@ -796,21 +752,32 @@ class VaultController extends ChangeNotifier {
         ? cleaned
         : uniqueNoteTitle(cleaned, subfolder: folder);
     var renamed = await _storage!.rename(latest, title);
-    final lines = renamed.body.split('\n');
-    if (lines.first.trim() == '# ${latest.title}') {
-      lines[0] = '# $title';
-      renamed = await _write(
-        _storage!,
-        renamed.copyWith(body: lines.join('\n')),
-      );
-    }
+    // The file has moved. Point the list, the tabs and the bookkeeping at
+    // the new path before anything else can fail: otherwise a later error
+    // would leave them on the old path, and the next save would quietly
+    // re-create the old file beside the renamed one.
     _moveNoteBookkeeping(latest, renamed);
-    await _relinkNotes(latest.title, title, skipPath: renamed.path);
-    await _pinnedStore?.save(_pinned);
-    await _reminderStore?.save(_reminders);
-    await _glyphStore?.saveOverrides(_glyphOverrides);
-    _background(_recentStore?.save(_recent));
-    notifyListeners();
+    try {
+      final lines = renamed.body.split('\n');
+      if (lines.first.trim() == '# ${latest.title}') {
+        lines[0] = '# $title';
+        // Through the ordinary save, so a failed write is kept and retried.
+        _bufferEdit(renamed.copyWith(body: lines.join('\n')));
+        await _flushPendingSave();
+        renamed = _notes.firstWhere(
+          (n) => n.path == renamed.path,
+          orElse: () => renamed,
+        );
+      }
+      await _relinkNotes(latest.title, title, skipPath: renamed.path);
+    } finally {
+      // Whatever happened above, the titles in these files did change.
+      _background(_pinnedStore?.save(_pinned));
+      _background(_reminderStore?.save(_reminders));
+      _background(_glyphStore?.saveOverrides(_glyphOverrides));
+      _background(_recentStore?.save(_recent));
+      _notifyIfAlive();
+    }
     return renamed;
   }
 
@@ -899,22 +866,23 @@ class VaultController extends ChangeNotifier {
   /// Delete a project folder; its notes go to the archive first.
   Future<void> deleteProject(String name) async {
     await _flushPendingSave();
-    await _storage!.deleteProject(name);
-    _projectColors.remove(name);
-    _projectOrder.remove(name);
-    await _projectColorsStore?.save(_projectColors);
-    await _projectOrderStore?.save(_projectOrder);
-    await reload();
-    if (_current != null && !_notes.any((n) => n.path == _current!.path)) {
-      _current = _notes.isNotEmpty ? _notes.first : null;
-      notifyListeners();
+    try {
+      await _storage!.deleteProject(name);
+      _projectColors.remove(name);
+      _projectOrder.remove(name);
+      await _projectColorsStore?.save(_projectColors);
+      await _projectOrderStore?.save(_projectOrder);
+    } finally {
+      // Also after a failure: some notes may already be in the archive, and
+      // the list must show what is really left. Running the delete again
+      // finishes the job — archived notes are moved, never copied twice.
+      await reload();
+      if (_current != null && !_notes.any((n) => n.path == _current!.path)) {
+        _current = _notes.isNotEmpty ? _notes.first : null;
+        _notifyIfAlive();
+      }
     }
   }
-
-  /// True when the note has an active note-level or line reminder.
-  bool hasAnyReminder(Note note) =>
-      _reminders.containsKey(note.title) ||
-      LineReminders.parseAll(note.body).isNotEmpty;
 
   Future<void> togglePin(String title) async {
     if (!_pinned.remove(title)) _pinned.add(title);
@@ -942,108 +910,6 @@ class VaultController extends ChangeNotifier {
   }
 
   Future<void> deleteArchivedForever(Note note) => _storage!.delete(note);
-
-  Future<void> setReminder(String title, DateTime when) async {
-    _reminders[title] = when;
-    notifyListeners();
-    await _reminderStore?.save(_reminders);
-  }
-
-  Future<void> clearReminder(String title) async {
-    if (_reminders.remove(title) != null) {
-      notifyListeners();
-      await _reminderStore?.save(_reminders);
-    }
-  }
-
-  /// Create a standalone reminder for [when] that isn't tied to any note
-  /// (set from the dashboard calendar).
-  Future<void> addEvent(String title, DateTime when) async {
-    _events.add(
-      CalendarEvent(
-        id: '${DateTime.now().microsecondsSinceEpoch}',
-        title: title,
-        when: when,
-      ),
-    );
-    notifyListeners();
-    await _calendarStore?.save(_events);
-  }
-
-  Future<void> deleteEvent(String id) async {
-    if (_events.isEmpty) return;
-    final before = _events.length;
-    _events = _events.where((e) => e.id != id).toList();
-    if (_events.length == before) return;
-    notifyListeners();
-    await _calendarStore?.save(_events);
-  }
-
-  void _touchRecent(Note note) {
-    _recent
-      ..remove(note.title)
-      ..insert(0, note.title);
-    if (_recent.length > RecentStore.max) {
-      _recent = _recent.sublist(0, RecentStore.max);
-    }
-    _background(_recentStore?.save(_recent));
-  }
-
-  void _checkDueReminders() {
-    if (_dueTitle != null) return; // one alert at a time
-    final now = DateTime.now();
-    for (final e in _reminders.entries) {
-      if (e.value.isBefore(now)) {
-        _dueTitle = e.key;
-        notifyListeners();
-        return;
-      }
-    }
-    for (final note in _notes) {
-      if (LineReminders.firstDue(note.body, now) != null) {
-        _dueTitle = note.title;
-        _dueLineNote = note;
-        notifyListeners();
-        return;
-      }
-    }
-    for (final ev in _events) {
-      if (ev.when.isBefore(now)) {
-        _dueTitle = ev.title;
-        _dueEventId = ev.id;
-        notifyListeners();
-        return;
-      }
-    }
-  }
-
-  /// Called by the UI after showing the due alert: clears the fired reminder.
-  Future<void> dismissDueReminder() async {
-    final title = _dueTitle;
-    final lineNote = _dueLineNote;
-    final eventId = _dueEventId;
-    _dueTitle = null;
-    _dueLineNote = null;
-    _dueEventId = null;
-    if (lineNote != null) {
-      // The note may have been edited since the alert fired; strip from now.
-      final latest = _notes.firstWhere(
-        (n) => n.path == lineNote.path,
-        orElse: () => lineNote,
-      );
-      final stripped = LineReminders.stripDue(latest.body, DateTime.now());
-      if (stripped != null) {
-        _bufferEdit(latest.copyWith(body: stripped));
-        await _flushPendingSave();
-      }
-    } else if (eventId != null) {
-      _events.removeWhere((e) => e.id == eventId);
-      await _calendarStore?.save(_events);
-    } else if (title != null && _reminders.remove(title) != null) {
-      await _reminderStore?.save(_reminders);
-    }
-    notifyListeners();
-  }
 
   Future<void> setTheme({
     String? mode,
@@ -1074,52 +940,6 @@ class VaultController extends ChangeNotifier {
   static const _tabsFile = 'tabs';
   String? _savedTabs;
   Future<void> _tabsWrite = Future.value();
-
-  Future<void> _restoreTabs(String root) async {
-    final all = await AppState.read(_tabsFile);
-    final saved = all is Map ? all[root] : null;
-    if (saved is! Map) return;
-    final byPath = {for (final n in _notes) n.path: n};
-    final open = [
-      for (final path in (saved['open'] as List?) ?? const [])
-        if (byPath.containsKey(path)) path as String,
-    ];
-    if (open.isEmpty) return;
-    _openPaths
-      ..clear()
-      ..addAll(open);
-    _current = byPath[saved['current']] ?? byPath[open.last];
-    _savedTabs = _tabsSnapshot();
-  }
-
-  String _tabsSnapshot() => [..._openPaths, '>', _current?.path].join('\n');
-
-  /// Called on every change; writes only when the tabs actually moved, so
-  /// typing in a note costs nothing here.
-  void _saveTabsIfChanged() {
-    final root = _storage?.id;
-    if (root == null || _disposed || _loading) return;
-    final snapshot = _tabsSnapshot();
-    if (snapshot == _savedTabs) return;
-    _savedTabs = snapshot;
-    final open = List<String>.of(_openPaths);
-    final current = _current?.path;
-    // Queued, so a quick run of tab switches is written in order.
-    _tabsWrite = _tabsWrite
-        .then((_) async {
-          // Strict read: if the file cannot be read right now, skip this
-          // write instead of dropping every other vault's remembered tabs.
-          final all = await AppState.readStrict(_tabsFile);
-          final map = all is Map
-              ? Map<String, Object?>.from(all)
-              : <String, Object?>{};
-          map[root] = {'open': open, 'current': current};
-          await AppState.write(_tabsFile, map);
-        })
-        .catchError((Object _) {
-          _savedTabs = null; // try again on the next change
-        });
-  }
 
   @override
   void notifyListeners() {

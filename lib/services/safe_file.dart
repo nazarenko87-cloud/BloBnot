@@ -57,6 +57,38 @@ Future<Object?> readJsonFile(File file) async {
   }
 }
 
+/// Like [readJsonFile] for a file that holds one flat JSON object, but a
+/// damaged file is not simply treated as empty: whatever `"key": "text"`
+/// pairs can still be read out of it are returned. The app settings file
+/// keeps the launch password this way — a half-written file must not turn
+/// into "no password set".
+Future<Map<String, dynamic>> readJsonObjectLenient(File file) async {
+  final text = await readTextFile(file);
+  if (text == null || text.trim().isEmpty) return {};
+  try {
+    final raw = jsonDecode(text);
+    return raw is Map<String, dynamic> ? raw : {};
+  } on FormatException {
+    try {
+      await File('${file.path}.corrupt').writeAsString(text, flush: true);
+    } on IOException {
+      // The backup is best effort.
+    }
+    final salvaged = <String, dynamic>{};
+    final pair = RegExp(r'"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]|\\.)*)"');
+    for (final m in pair.allMatches(text)) {
+      try {
+        final key = jsonDecode('"${m.group(1)}"');
+        final value = jsonDecode('"${m.group(2)}"');
+        if (key is String && value is String) salvaged[key] = value;
+      } on FormatException {
+        // An unreadable pair is skipped; the others still count.
+      }
+    }
+    return salvaged;
+  }
+}
+
 final Map<String, Future<void>> _writeQueues = {};
 
 /// Writes [text] to [file] so that a crash or a sync client reading mid-write

@@ -210,11 +210,17 @@ class VaultStorage implements VaultBackend {
   Future<void> deleteProject(String name) async {
     final dir = Directory(p.join(root, name));
     if (!dir.existsSync()) return;
+    // List first, then move: renaming files out of a folder while it is
+    // still being listed can skip entries.
+    final notes = <File>[];
     await for (final e in dir.list(recursive: true, followLinks: false)) {
-      if (e is File && e.path.toLowerCase().endsWith('.md')) {
-        await archive(await _readFile(e));
-      }
+      if (e is File && e.path.toLowerCase().endsWith('.md')) notes.add(e);
     }
+    for (final file in notes) {
+      await archive(await _readFile(file));
+    }
+    // Only reached when every note is safely in the archive; a failure
+    // above leaves the folder (and the notes not yet moved) in place.
     await dir.delete(recursive: true);
   }
 

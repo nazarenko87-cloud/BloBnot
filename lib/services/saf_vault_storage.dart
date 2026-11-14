@@ -151,9 +151,25 @@ class SafVaultStorage implements VaultBackend {
   Future<void> archive(Note note) async {
     final rel = safRelPath(note.path);
     final body = await SafChannel.readFile(treeUri, rel);
-    final dest = await _uniqueName(_archive, note.title);
-    await SafChannel.writeFile(treeUri, '$_archive/$dest', body);
+    // SAF cannot move, only copy and delete. If an earlier attempt copied
+    // this note and then failed to delete it, the copy is already there:
+    // do not make a second "(1)" one, just finish the delete.
+    if (!await _archivedCopyExists(note.title, body)) {
+      final dest = await _uniqueName(_archive, note.title);
+      await SafChannel.writeFile(treeUri, '$_archive/$dest', body);
+    }
     await SafChannel.delete(treeUri, rel);
+  }
+
+  Future<bool> _archivedCopyExists(String title, String body) async {
+    final wanted = '$title.md'.toLowerCase();
+    final entries = await SafChannel.listFolder(treeUri, _archive);
+    for (final e in entries) {
+      final name = e['relPath'] as String;
+      if (name.toLowerCase() != wanted) continue;
+      return await SafChannel.readFile(treeUri, '$_archive/$name') == body;
+    }
+    return false;
   }
 
   @override
