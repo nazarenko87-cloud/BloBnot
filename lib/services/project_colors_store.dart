@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'safe_file.dart';
+
 /// Project → colour index, persisted to `{vault}/project_colors.json`
 /// (v1.1 feature). Index refers to [kProjectColors] in the UI layer.
 class ProjectColorsStore {
@@ -13,21 +15,18 @@ class ProjectColorsStore {
   File get _file => File(p.join(vaultRoot, 'project_colors.json'));
 
   Future<Map<String, int>> load() async {
-    try {
-      if (!await _file.exists()) return {};
-      final raw = jsonDecode(await _file.readAsString());
-      return <String, int>{
-        for (final e in (raw as Map<String, dynamic>).entries)
-          if (e.value is int) e.key: e.value as int,
-      };
-    } on FormatException {
-      return {};
-    } on IOException {
-      return {};
+    final raw = await readJsonFile(_file);
+    if (raw is! Map) return {};
+    final out = <String, int>{};
+    for (final e in raw.entries) {
+      final key = e.key;
+      final value = e.value;
+      if (key is String && value is int) out[key] = value;
     }
+    return out;
   }
 
   Future<void> save(Map<String, int> colors) async {
-    await _file.writeAsString(jsonEncode(colors));
+    await writeFileAtomic(_file, jsonEncode(colors));
   }
 }

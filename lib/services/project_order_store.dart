@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'safe_file.dart';
 
 /// Manual project ordering persisted to `{vault}/projectorder.json`
 /// (a JSON array of folder names, original v1.0 format).
@@ -13,19 +14,12 @@ class ProjectOrderStore {
   File get _file => File(p.join(vaultRoot, 'projectorder.json'));
 
   Future<List<String>> load() async {
-    try {
-      if (!await _file.exists()) return [];
-      final raw = jsonDecode(await _file.readAsString());
-      return (raw as List).whereType<String>().toList();
-    } on FormatException {
-      return [];
-    } on IOException {
-      return [];
-    }
+    final raw = await readJsonFile(_file);
+    return raw is List ? raw.whereType<String>().toList() : [];
   }
 
   Future<void> save(List<String> order) async {
-    await _file.writeAsString(jsonEncode(order));
+    await writeFileAtomic(_file, jsonEncode(order));
   }
 
   /// Sort [projects] by the saved [order]; unknown names keep their

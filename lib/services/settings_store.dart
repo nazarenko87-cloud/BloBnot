@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'app_paths.dart';
+import 'safe_file.dart';
 
 /// Per-vault settings persisted to `{vault}/settings.json` so they travel
 /// with the vault (e.g. through Google Drive).
@@ -110,19 +111,18 @@ class SettingsStore {
   File get _file => File(p.join(vaultRoot, 'settings.json'));
 
   Future<VaultSettings> load() async {
+    final data = await readJsonFile(_file);
+    if (data is! Map<String, dynamic>) return const VaultSettings();
     try {
-      if (!await _file.exists()) return const VaultSettings();
-      final data = jsonDecode(await _file.readAsString());
-      return VaultSettings.fromJson(data as Map<String, dynamic>);
-    } on FormatException {
-      return const VaultSettings();
-    } on IOException {
+      return VaultSettings.fromJson(data);
+    } on TypeError {
+      // A value of the wrong type (hand-edited file): fall back to defaults.
       return const VaultSettings();
     }
   }
 
   Future<void> save(VaultSettings s) async {
-    await _file.writeAsString(jsonEncode(s.toJson()));
+    await writeFileAtomic(_file, jsonEncode(s.toJson()));
   }
 }
 
@@ -139,26 +139,33 @@ class AppSettings {
       overrideFile ?? await AppPaths.settingsFile();
 
   static Future<Map<String, dynamic>> _read() async {
+    // Throws when the file exists but cannot be read — see [setLastVault].
+    final raw = await readJsonFile(await _resolve());
+    return raw is Map<String, dynamic> ? raw : {};
+  }
+
+  static Future<String?> lastVault() async {
     try {
-      final file = await _resolve();
-      if (!await file.exists()) return {};
-      return jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-    } on FormatException {
-      return {};
+      final vault = (await _read())['vault'];
+      return vault is String ? vault : null;
     } on IOException {
-      return {};
+      return null;
     }
   }
 
-  static Future<String?> lastVault() async =>
-      (await _read())['vault'] as String?;
-
+  /// Remembers [path] as the vault to reopen. The file also holds the launch
+  /// password, so it is rewritten only when the value really changes and
+  /// never on top of a file that could not be read.
   static Future<void> setLastVault(String path) async {
-    final data = await _read();
+    final Map<String, dynamic> data;
+    try {
+      data = await _read();
+    } on IOException {
+      return;
+    }
+    if (data['vault'] == path) return;
     data['vault'] = path;
-    final file = await _resolve();
-    await file.parent.create(recursive: true);
-    await file.writeAsString(jsonEncode(data));
+    await writeFileAtomic(await _resolve(), jsonEncode(data));
   }
 }
 
@@ -173,21 +180,20 @@ class AppState {
 
   static Future<Object?> read(String name) async {
     try {
-      final file = await _file(name);
-      if (!await file.exists()) return null;
-      return jsonDecode(await file.readAsString());
-    } on FormatException {
-      return null;
+      return await readJsonFile(await _file(name));
     } on IOException {
       return null;
     }
   }
 
+  /// Like [read], but throws when the file exists and cannot be read — for
+  /// read-modify-write callers, which must not write back a partial copy.
+  static Future<Object?> readStrict(String name) async =>
+      readJsonFile(await _file(name));
+
   static Future<void> write(String name, Object? value) async {
     try {
-      final file = await _file(name);
-      await file.parent.create(recursive: true);
-      await file.writeAsString(jsonEncode(value));
+      await writeFileAtomic(await _file(name), jsonEncode(value));
     } on IOException {
       // Losing remembered tabs or window placement is not worth an error.
     }

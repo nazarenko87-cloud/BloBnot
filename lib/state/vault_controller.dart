@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:collection';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
@@ -15,9 +17,12 @@ import '../services/reminder_store.dart';
 import '../services/settings_store.dart';
 import '../services/meta_paths.dart';
 import '../services/vault_backend.dart';
+import '../services/vault_storage.dart';
 import '../utils/hot_tasks.dart';
 import '../utils/line_reminders.dart';
 import '../utils/properties.dart';
+
+part 'vault_hot_tasks.dart';
 
 /// Single source of truth for the open vault: notes, selection, theme,
 /// reminders and the launch-password lock.
@@ -91,7 +96,32 @@ class VaultController extends ChangeNotifier {
   /// any note), its id (dismissing removes that event).
   String? _dueEventId;
 
-  List<Note> get notes => List.unmodifiable(_notes);
+  // A view, not a copy: this getter is read on every rebuild.
+  List<Note> get notes => UnmodifiableListView(_notes);
+
+  /// Recently opened notes that are not open as a tab right now.
+  List<Note> get recentNotClosed {
+    final open = _openPaths.toSet();
+    return [
+      for (final n in recentNotes)
+        if (!open.contains(n.path)) n,
+    ];
+  }
+
+  /// Notes the last load had to skip because their files could not be read.
+  String? _loadWarning;
+  String? get loadWarning => _loadWarning;
+
+  void _noteSkipWarning() {
+    final storage = _storage;
+    final skipped = storage is VaultStorage ? storage.skipped : const <String>[];
+    _loadWarning = skipped.isEmpty
+        ? null
+        : 'Could not read ${skipped.length} '
+              '${skipped.length == 1 ? 'note' : 'notes'}: '
+              '${skipped.take(5).join(', ')}'
+              '${skipped.length > 5 ? '…' : ''}';
+  }
   Note? get current => _current;
   VaultSettings get settings => _settings;
   bool get loading => _loading;
@@ -270,22 +300,47 @@ class VaultController extends ChangeNotifier {
   /// On launch: engage the lock if a password is set, then reopen the
   /// last-used vault if it still exists.
   Future<void> bootstrap() async {
-    await refreshLock();
-    final last = await AppSettings.lastVault();
-    if (last != null && await openBackend(last).available()) {
-      await openVault(last);
+    try {
+      // Independent reads: do them together.
+      final lock = refreshLock();
+      final last = await AppSettings.lastVault();
+      await lock;
+      if (last != null && await openBackend(last).available()) {
+        await openVault(last);
+      }
+    } finally {
+      _booting = false;
+      _notifyIfAlive();
     }
   }
+
+  /// True until the first [bootstrap] or [openVault] has finished, so the
+  /// UI can wait quietly instead of flashing the "choose a folder" screen
+  /// before the last vault has had a chance to open.
+  bool _booting = true;
+  bool get booting => _booting;
 
   ({String salt, String hash})? _pwRecord;
 
   /// Engage the lock when a password is currently set. Caches the salt+hash
   /// so [unlock] can verify synchronously (no disk I/O per attempt).
   Future<void> refreshLock() async {
-    _pwRecord = await passwordStore.load();
-    _locked = _pwRecord != null;
-    notifyListeners();
+    try {
+      _pwRecord = await passwordStore.load();
+      _lockUnknown = false;
+      _locked = _pwRecord != null;
+    } on IOException {
+      // The settings file is there but could not be read. Whether a password
+      // is set is unknown, so stay locked rather than let anyone in.
+      _pwRecord = null;
+      _lockUnknown = true;
+      _locked = true;
+    }
+    _notifyIfAlive();
   }
+
+  /// True when the password record could not be read (see [refreshLock]).
+  bool _lockUnknown = false;
 
   /// Re-engage the lock (e.g. when hiding to tray) if a password is set.
   void lockNow() {
@@ -296,6 +351,11 @@ class VaultController extends ChangeNotifier {
 
   bool unlock(String password) {
     final rec = _pwRecord;
+    if (_lockUnknown) {
+      // Try the file again; this attempt cannot be checked against anything.
+      unawaited(refreshLock());
+      return false;
+    }
     if (rec != null && PasswordStore.hashOf(password, rec.salt) != rec.hash) {
       return false;
     }
@@ -328,17 +388,36 @@ class VaultController extends ChangeNotifier {
       _glyphStore = GlyphStore(meta);
       _projectOrderStore = ProjectOrderStore(meta);
       _calendarStore = CalendarEventStore(meta);
-      _settings = await _settingsStore!.load();
-      _reminders = await _reminderStore!.load();
-      _events = await _calendarStore!.load();
-      _pinned = await _pinnedStore!.load();
-      _projectColors = await _projectColorsStore!.load();
-      _tagGlyphs = await _glyphStore!.loadTagGlyphs();
-      _glyphOverrides = await _glyphStore!.loadOverrides();
-      _projectOrder = await _projectOrderStore!.load();
-      _recent = await _recentStore!.load();
-      _projects = await _storage!.listProjects();
-      _notes = await _storage!.loadNotes();
+      // Small reads that do not depend on each other: run them together
+      // instead of one after another — on a cloud-synced folder each one is
+      // a separate round trip. A store that cannot read its file throws, and
+      // the open fails as a whole: carrying on with empty defaults is how a
+      // briefly locked file used to get wiped by the next save.
+      final loads = await Future.wait<Object?>([
+        _settingsStore!.load(),
+        _reminderStore!.load(),
+        _calendarStore!.load(),
+        _pinnedStore!.load(),
+        _projectColorsStore!.load(),
+        _glyphStore!.loadTagGlyphs(),
+        _glyphStore!.loadOverrides(),
+        _projectOrderStore!.load(),
+        _recentStore!.load(),
+        _storage!.listProjects(),
+        _storage!.loadNotes(),
+      ]);
+      _settings = loads[0] as VaultSettings;
+      _reminders = loads[1] as Map<String, DateTime>;
+      _events = loads[2] as List<CalendarEvent>;
+      _pinned = loads[3] as Set<String>;
+      _projectColors = loads[4] as Map<String, int>;
+      _tagGlyphs = loads[5] as Map<String, String>;
+      _glyphOverrides = loads[6] as Map<String, String>;
+      _projectOrder = loads[7] as List<String>;
+      _recent = loads[8] as List<String>;
+      _projects = loads[9] as List<String>;
+      _notes = loads[10] as List<Note>;
+      _noteSkipWarning();
       _hot = [];
       _hotBaseline = {};
       _lastCompletedHotId = null;
@@ -346,7 +425,11 @@ class VaultController extends ChangeNotifier {
       _current = _notes.isNotEmpty ? _notes.first : null;
       if (_current != null) _openPaths.add(_current!.path);
       await _restoreTabs(root);
-      await AppSettings.setLastVault(root);
+      try {
+        await AppSettings.setLastVault(root);
+      } on IOException {
+        // Not remembering the vault is no reason to fail opening it.
+      }
       _reminderTimer?.cancel();
       _reminderTimer = Timer.periodic(
         const Duration(seconds: 30),
@@ -357,6 +440,7 @@ class VaultController extends ChangeNotifier {
       _openError = 'Could not open vault: $e';
     } finally {
       _loading = false;
+      _booting = false;
       notifyListeners();
     }
   }
@@ -379,8 +463,22 @@ class VaultController extends ChangeNotifier {
     await _flushPendingSave();
     _reloadCount++;
     try {
-      _projects = await _storage!.listProjects();
-      _notes = await _storage!.loadNotes();
+      final projects = await _storage!.listProjects();
+      final loaded = await _storage!.loadNotes();
+      // Reading a cloud folder takes a while. Anything typed meanwhile is
+      // newer than the disk: carry it over, or the list (and the editor's
+      // idea of the note) would fall back to the old text.
+      for (final pending in _pending.values) {
+        final at = loaded.indexWhere((n) => n.path == pending.path);
+        if (at >= 0) {
+          loaded[at] = loaded[at].copyWith(body: pending.body);
+        } else {
+          loaded.add(pending);
+        }
+      }
+      _projects = projects;
+      _notes = loaded;
+      _noteSkipWarning();
       await _loadHot();
       if (_current != null) {
         _current = _notes.firstWhere(
@@ -407,7 +505,7 @@ class VaultController extends ChangeNotifier {
     final due = _reminders[note.title];
     if (due != null && due.isBefore(now)) {
       _reminders.remove(note.title);
-      unawaited(_reminderStore?.save(_reminders));
+      _background(_reminderStore?.save(_reminders));
     }
     final stripped = LineReminders.stripDue(note.body, now);
     if (stripped != null) {
@@ -422,10 +520,32 @@ class VaultController extends ChangeNotifier {
   /// Update the current note's body in memory and schedule a debounced save.
   void editCurrentBody(String body) {
     if (_current == null) return;
+    final wasDirty = _pending.isNotEmpty;
     _bufferEdit(_current!.copyWith(body: body));
-    notifyListeners();
+    if (!wasDirty) {
+      // Flip the save indicator at once.
+      notifyListeners();
+    } else {
+      // The editor already shows the text. Everything else that watches
+      // this controller — the note list, tabs, backlinks, graph — is told
+      // once the typing pauses, not on every keystroke.
+      _typingNotify ??= Timer(const Duration(milliseconds: 250), () {
+        _typingNotify = null;
+        _notifyIfAlive();
+      });
+    }
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 800), _flushPendingSave);
+  }
+
+  Timer? _typingNotify;
+
+  /// Runs a small bookkeeping save (recent list, a cleared reminder) without
+  /// waiting for it. A failure here is not worth interrupting the user and
+  /// must not surface as an unhandled error; the next change saves again.
+  void _background(Future<void>? save) {
+    if (save == null) return;
+    unawaited(save.catchError((Object _) {}, test: (e) => e is IOException));
   }
 
   /// Puts [edited] in memory and queues it for the next save.
@@ -689,7 +809,7 @@ class VaultController extends ChangeNotifier {
     await _pinnedStore?.save(_pinned);
     await _reminderStore?.save(_reminders);
     await _glyphStore?.saveOverrides(_glyphOverrides);
-    unawaited(_recentStore?.save(_recent));
+    _background(_recentStore?.save(_recent));
     notifyListeners();
     return renamed;
   }
@@ -866,7 +986,7 @@ class VaultController extends ChangeNotifier {
     if (_recent.length > RecentStore.max) {
       _recent = _recent.sublist(0, RecentStore.max);
     }
-    unawaited(_recentStore?.save(_recent));
+    _background(_recentStore?.save(_recent));
   }
 
   void _checkDueReminders() {
@@ -985,14 +1105,20 @@ class VaultController extends ChangeNotifier {
     final open = List<String>.of(_openPaths);
     final current = _current?.path;
     // Queued, so a quick run of tab switches is written in order.
-    _tabsWrite = _tabsWrite.then((_) async {
-      final all = await AppState.read(_tabsFile);
-      final map = all is Map
-          ? Map<String, Object?>.from(all)
-          : <String, Object?>{};
-      map[root] = {'open': open, 'current': current};
-      await AppState.write(_tabsFile, map);
-    });
+    _tabsWrite = _tabsWrite
+        .then((_) async {
+          // Strict read: if the file cannot be read right now, skip this
+          // write instead of dropping every other vault's remembered tabs.
+          final all = await AppState.readStrict(_tabsFile);
+          final map = all is Map
+              ? Map<String, Object?>.from(all)
+              : <String, Object?>{};
+          map[root] = {'open': open, 'current': current};
+          await AppState.write(_tabsFile, map);
+        })
+        .catchError((Object _) {
+          _savedTabs = null; // try again on the next change
+        });
   }
 
   @override
@@ -1006,6 +1132,7 @@ class VaultController extends ChangeNotifier {
     _flushPendingSave();
     _saveTimer?.cancel();
     _retryTimer?.cancel();
+    _typingNotify?.cancel();
     _reminderTimer?.cancel();
     _insertRequests.close();
     _disposed = true;
@@ -1056,137 +1183,5 @@ class VaultController extends ChangeNotifier {
 
   void _notifyIfAlive() {
     if (!_disposed) notifyListeners();
-  }
-
-  Future<void> _loadHot() {
-    final storage = _storage;
-    if (storage == null) return Future.value();
-    final generation = _hotGeneration;
-    return _queueHot(() async {
-      try {
-        final now = DateTime.now();
-        final parsed = parseHotTasks(
-          await storage.readText(kHotTasksPath),
-          now: now,
-          nextId: () => _hotSeq++,
-        );
-        if (!identical(_storage, storage) || _hotGeneration != generation) {
-          return; // vault switched, or the user changed tasks meanwhile
-        }
-        final split = splitForArchive(parsed, now);
-        _hot = split.keep;
-        _hotBaseline = parsed.map(hotTaskLine).toSet();
-        if (split.archive.isNotEmpty) {
-          final existing = await storage.readText(kHotArchivePath);
-          await storage.writeText(
-            kHotArchivePath,
-            appendToArchive(existing, split.archive, now),
-          );
-          final kept = split.keep;
-          await storage.writeText(kHotTasksPath, serializeHotTasks(kept));
-          _hotBaseline = kept.map(hotTaskLine).toSet();
-        }
-        _hotError = null;
-      } on Exception catch (e) {
-        _hotError = 'Could not load hot tasks: $e';
-      }
-    });
-  }
-
-  /// Writes the current list — after folding in anything someone else wrote
-  /// to the file since this app last touched it (see [mergeExternal]).
-  Future<void> _saveHot() {
-    final storage = _storage;
-    if (storage == null) return Future.value();
-    return _queueHot(() async {
-      if (!identical(_storage, storage)) return;
-      final disk = parseHotTasks(
-        await storage.readText(kHotTasksPath),
-        now: DateTime.now(),
-      );
-      if (!identical(_storage, storage)) return;
-      final merged = mergeExternal(
-        memory: _hot,
-        baseline: _hotBaseline,
-        disk: disk,
-        nextId: () => _hotSeq++,
-      );
-      if (serializeHotTasks(merged) != serializeHotTasks(_hot)) {
-        _hot = merged;
-        _notifyIfAlive();
-      }
-      final written = _hot;
-      await storage.writeText(kHotTasksPath, serializeHotTasks(written));
-      _hotBaseline = written.map(hotTaskLine).toSet();
-    });
-  }
-
-  HotTask? _hotById(int id) {
-    for (final t in _hot) {
-      if (t.id == id) return t;
-    }
-    return null;
-  }
-
-  Future<void> addHotTask(String text) {
-    final clean = cleanHotText(text);
-    if (clean.isEmpty || _storage == null) return Future.value();
-    _hot = [
-      HotTask(id: _hotSeq++, text: clean, created: toMinute(DateTime.now())),
-      ..._hot,
-    ];
-    return _hotChanged();
-  }
-
-  /// Rewrite a task's text, keeping its stamps and its place in the list.
-  Future<void> editHotTask(int id, String text) {
-    final clean = cleanHotText(text);
-    final task = _hotById(id);
-    if (clean.isEmpty || task == null || task.text == clean) {
-      return Future.value();
-    }
-    _hot = [for (final t in _hot) t.id == id ? t.withText(clean) : t];
-    return _hotChanged();
-  }
-
-  Future<void> completeHotTask(int id) {
-    final task = _hotById(id);
-    if (task == null || task.isDone) return Future.value();
-    final now = toMinute(DateTime.now());
-    _hot = [for (final t in _hot) t.id == id ? t.withDone(now) : t];
-    _lastCompletedHotId = id;
-    return _hotChanged();
-  }
-
-  /// Back to in progress, at the top — for undoing a mis-click.
-  Future<void> reopenHotTask(int id) {
-    final task = _hotById(id);
-    if (task == null || !task.isDone) return Future.value();
-    _hot = [task.withDone(null), ..._hot.where((t) => t.id != id)];
-    if (_lastCompletedHotId == id) _lastCompletedHotId = null;
-    return _hotChanged();
-  }
-
-  Future<void> deleteHotTask(int id) {
-    if (_hotById(id) == null) return Future.value();
-    _hot = _hot.where((t) => t.id != id).toList();
-    return _hotChanged();
-  }
-
-  Future<void> _hotChanged() {
-    _hotGeneration++;
-    notifyListeners();
-    return _saveHot();
-  }
-
-  /// Archived hot tasks, most recently completed first. Lines someone left
-  /// unchecked in the archive file by hand are not archived tasks; skip them.
-  Future<List<HotTask>> loadHotArchive() async {
-    final storage = _storage;
-    if (storage == null) return const [];
-    final text = await storage.readText(kHotArchivePath);
-    return sortDone(
-      parseHotTasks(text, now: DateTime.now()).where((t) => t.isDone),
-    );
   }
 }

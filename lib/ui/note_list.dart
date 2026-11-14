@@ -170,6 +170,19 @@ class _NoteListState extends State<NoteList> {
                 'Notes  ${controller.notes.length}',
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
+              if (controller.loadWarning != null) ...[
+                const SizedBox(width: 6),
+                Tooltip(
+                  message:
+                      '${controller.loadWarning}. '
+                      'Refresh (Ctrl+R) to try again.',
+                  child: Icon(
+                    Icons.warning_amber_rounded,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ],
               const Spacer(),
               PopupMenuButton<_Sort>(
                 tooltip: 'Sort',
@@ -207,12 +220,8 @@ class _NoteListState extends State<NoteList> {
         // is the ones that are not open — that is where the row earns its
         // place. Hidden when there are none.
         if (_query.isEmpty)
-          if (controller.recentNotes
-                  .where(
-                    (n) => !controller.openTabs.any((t) => t.path == n.path),
-                  )
-                  .toList()
-              case final closed when closed.isNotEmpty)
+          if (controller.recentNotClosed case final closed
+              when closed.isNotEmpty)
             _RecentRow(notes: closed, onTap: controller.select),
         const SizedBox(height: 8),
         Expanded(

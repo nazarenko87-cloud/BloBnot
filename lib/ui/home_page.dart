@@ -264,8 +264,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     _maybeShowDueReminder(controller);
 
+    // Still opening the last vault: show the page colour, not the "choose a
+    // folder" screen or an empty shell that fills in a moment later.
+    if (controller.booting ||
+        (controller.loading && controller.notes.isEmpty)) {
+      return const Scaffold(body: SizedBox.expand());
+    }
+
     if (!controller.hasVault) {
-      return Scaffold(body: _NoVault(onOpen: () => _pickVault(context)));
+      return Scaffold(
+        body: _NoVault(
+          onOpen: () => _pickVault(context),
+          error: controller.openError,
+          onRetry: controller.bootstrap,
+        ),
+      );
     }
 
     if (MediaQuery.sizeOf(context).width < kMobileBreakpoint) {
@@ -1032,8 +1045,14 @@ class _DragHandle extends StatelessWidget {
 }
 
 class _NoVault extends StatelessWidget {
-  const _NoVault({required this.onOpen});
+  const _NoVault({required this.onOpen, this.error, this.onRetry});
   final VoidCallback onOpen;
+
+  /// Why the last vault did not open (a file locked by the sync client,
+  /// say) — shown with a way to try again, so it is not mistaken for
+  /// "no vault chosen yet".
+  final String? error;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -1046,7 +1065,24 @@ class _NoVault extends StatelessWidget {
             style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
-          const Text('Choose a folder to use as your vault.'),
+          if (error != null) ...[
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Text(
+                error!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try again'),
+            ),
+            const SizedBox(height: 12),
+          ] else
+            const Text('Choose a folder to use as your vault.'),
           const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: onOpen,

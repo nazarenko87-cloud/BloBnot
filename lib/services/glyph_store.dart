@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'safe_file.dart';
 
 /// Glyph medallions:
 /// - `{vault}/glyphs.json` maps tag → glyph (emoji);
@@ -25,19 +26,16 @@ class GlyphStore {
     File f, {
     bool lowercaseKeys = false,
   }) async {
-    try {
-      if (!await f.exists()) return {};
-      final raw = jsonDecode(await f.readAsString());
-      return <String, String>{
-        for (final e in (raw as Map<String, dynamic>).entries)
-          if (_usable(e.value))
-            (lowercaseKeys ? e.key.toLowerCase() : e.key): e.value as String,
-      };
-    } on FormatException {
-      return {};
-    } on IOException {
-      return {};
+    final raw = await readJsonFile(f);
+    if (raw is! Map) return {};
+    final out = <String, String>{};
+    for (final e in raw.entries) {
+      final key = e.key;
+      final value = e.value;
+      if (key is! String || !_usable(value)) continue;
+      out[lowercaseKeys ? key.toLowerCase() : key] = value as String;
     }
+    return out;
   }
 
   Future<Map<String, String>> loadTagGlyphs() =>
@@ -45,8 +43,8 @@ class GlyphStore {
   Future<Map<String, String>> loadOverrides() => _load(_overridesFile);
 
   Future<void> saveTagGlyphs(Map<String, String> glyphs) =>
-      _tagsFile.writeAsString(jsonEncode(glyphs));
+      writeFileAtomic(_tagsFile, jsonEncode(glyphs));
 
   Future<void> saveOverrides(Map<String, String> overrides) =>
-      _overridesFile.writeAsString(jsonEncode(overrides));
+      writeFileAtomic(_overridesFile, jsonEncode(overrides));
 }

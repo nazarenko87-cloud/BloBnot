@@ -11,11 +11,14 @@ import 'ui/home_page.dart';
 import 'ui/theme.dart';
 
 /// App version string surfaced in the About dialog. Keep in sync with pubspec.
-const String kAppVersion = '2.9.4';
+const String kAppVersion = '2.9.5';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final controller = VaultController();
+  // Start reading the vault right away: it overlaps with the window set-up
+  // below instead of beginning only after the window is on screen.
+  final boot = controller.bootstrap();
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     // Needed for the Fullscreen toggle in the rail. No close-interception or
     // tray icon here on purpose — that used to cost several seconds of
@@ -35,6 +38,12 @@ void main() async {
           windowManager
             ..addListener(KeepTitleBarReachable())
             ..addListener(RememberWindow());
+          // Give the notes a short head start so the window opens already
+          // filled; a slow drive does not hold the window back for long.
+          await boot.timeout(
+            const Duration(milliseconds: 600),
+            onTimeout: () {},
+          );
           await windowManager.show();
           await windowManager.focus();
         },
@@ -44,7 +53,7 @@ void main() async {
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider.value(value: controller..bootstrap()),
+        ChangeNotifierProvider.value(value: controller),
         ChangeNotifierProvider(create: (_) => ExternalFilesController()),
       ],
       child: const BloBnotApp(),

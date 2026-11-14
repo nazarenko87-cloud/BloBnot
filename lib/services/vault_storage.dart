@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import '../models/note.dart';
 import 'vault_backend.dart';
+import 'safe_file.dart';
 
 /// File-system backed vault: notes are plain `.md` files inside [root].
 ///
@@ -29,33 +30,60 @@ class VaultStorage implements VaultBackend {
   Future<List<Note>> loadNotes() async {
     if (!exists) return [];
     final files = <File>[];
-    await for (final entity in _dir.list(recursive: true, followLinks: false)) {
-      if (entity is! File) continue;
-      if (!entity.path.toLowerCase().endsWith('.md')) continue;
-      final rel = p.relative(entity.path, from: root);
-      if (rel
-          .split(p.separator)
-          .any((seg) => seg.startsWith('.') || _reservedDirs.contains(seg))) {
-        continue;
+    // Walk by hand so reserved folders are never entered: a recursive
+    // listing would enumerate every attachment and archived note first and
+    // only then throw them away — slow on a cloud-synced drive.
+    Future<void> walk(Directory dir) async {
+      final subdirs = <Directory>[];
+      await for (final entity in dir.list(followLinks: false)) {
+        final name = p.basename(entity.path);
+        if (entity is File) {
+          if (!name.startsWith('.') && name.toLowerCase().endsWith('.md')) {
+            files.add(entity);
+          }
+        } else if (entity is Directory) {
+          if (!name.startsWith('.') && !_reservedDirs.contains(name)) {
+            subdirs.add(entity);
+          }
+        }
       }
-      files.add(entity);
+      await Future.wait(subdirs.map(walk));
     }
+
+    await walk(_dir);
     final notes = <Note>[];
+    final unreadable = <String>[];
+    // One file that cannot be read (locked by the sync client, damaged) is
+    // skipped and reported; it must not stop the whole vault from opening.
+    Future<Note?> readOrSkip(File f) async {
+      try {
+        return await _readFile(f);
+      } on IOException {
+        unreadable.add(Note.titleFromPath(f.path));
+        return null;
+      }
+    }
+
     const batch = 24;
     for (var i = 0; i < files.length; i += batch) {
       final chunk = files.skip(i).take(batch);
-      notes.addAll(await Future.wait(chunk.map(_readFile)));
+      notes.addAll((await Future.wait(chunk.map(readOrSkip))).nonNulls);
     }
+    skipped = unreadable..sort();
     notes.sort((a, b) => a.titleLower.compareTo(b.titleLower));
     return notes;
   }
+
+  /// Titles of notes the last [loadNotes] could not read.
+  List<String> skipped = const [];
 
   Future<Note> _readFile(File f) async {
     final stat = await f.stat();
     return Note(
       path: f.path,
       title: Note.titleFromPath(f.path),
-      body: await f.readAsString(),
+      // Retries a briefly locked file and tolerates a stray invalid byte.
+      body: await readTextFile(f) ?? '',
       modified: stat.modified,
     );
   }

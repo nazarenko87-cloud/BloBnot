@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 
 import 'app_paths.dart';
+import 'safe_file.dart';
 
 /// Local launch password: salted SHA-256, stored in the app's settings file
 /// (app-local — deliberately does NOT travel with the vault).
@@ -16,21 +17,16 @@ class PasswordStore {
   Future<File> get _file async => _override ?? await AppPaths.settingsFile();
 
   Future<Map<String, dynamic>> _read() async {
-    try {
-      final file = await _file;
-      if (!await file.exists()) return {};
-      return jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-    } on FormatException {
-      return {};
-    } on IOException {
-      return {};
-    }
+    // Throws [UnreadableFileException] when the file is there but locked:
+    // "no password" must never be concluded from a failed read, or the lock
+    // screen would be skipped and the next write would erase the hash.
+    final raw = await readJsonFile(await _file);
+    return raw is Map<String, dynamic> ? raw : {};
   }
 
   Future<void> _write(Map<String, dynamic> data) async {
     final file = await _file;
-    await file.parent.create(recursive: true);
-    await file.writeAsString(jsonEncode(data));
+    await writeFileAtomic(file, jsonEncode(data));
   }
 
   static String hashOf(String password, String salt) =>
@@ -41,9 +37,9 @@ class PasswordStore {
   /// Current salt+hash record, or null when no password is set.
   Future<({String salt, String hash})?> load() async {
     final data = await _read();
-    final salt = data['pwSalt'] as String?;
-    final hash = data['pwHash'] as String?;
-    if (salt == null || hash == null || hash.isEmpty) return null;
+    final salt = data['pwSalt'];
+    final hash = data['pwHash'];
+    if (salt is! String || hash is! String || hash.isEmpty) return null;
     return (salt: salt, hash: hash);
   }
 
