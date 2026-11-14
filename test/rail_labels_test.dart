@@ -23,6 +23,8 @@ void main() {
       passwordStore: PasswordStore(file: File('${tmp.path}/pw.json')),
     );
     await controller.openVault(tmp.path);
+    // These tests are about the classic layout's rail.
+    await controller.setTheme(layout: 'classic');
   });
 
   tearDown(() async {

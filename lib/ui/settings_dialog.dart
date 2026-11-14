@@ -33,6 +33,34 @@ class _SettingsDialog extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              const _Section('Layout'),
+              SegmentedButton<String>(
+                key: const Key('setting-layout'),
+                segments: const [
+                  ButtonSegment(
+                    value: 'columns',
+                    icon: Icon(Icons.view_week_outlined, size: 16),
+                    label: Text('Three columns'),
+                  ),
+                  ButtonSegment(
+                    value: 'classic',
+                    icon: Icon(Icons.view_sidebar_outlined, size: 16),
+                    label: Text('Classic'),
+                  ),
+                ],
+                selected: {s.layout},
+                showSelectedIcon: false,
+                onSelectionChanged: (v) => controller.setTheme(layout: v.first),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                s.layout == 'columns'
+                    ? 'Folders, notes with their first line, the open note. '
+                          'Narrow windows use the classic layout.'
+                    : 'Icon rail, notes grouped by folder, tabs on top.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 14),
               const _Section('Theme'),
               SegmentedButton<String>(
                 segments: const [

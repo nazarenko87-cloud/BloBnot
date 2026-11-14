@@ -119,7 +119,13 @@ void main() {
     expect(controller.current!.body, endsWith('- [x] item'));
 
     await tester.tapAt(
-      tester.getCenter(find.textContaining('First', findRichText: true)),
+      tester.getCenter(
+        // The notes column shows the same first line; take the preview's.
+        find.descendant(
+          of: find.byKey(const Key('preview-selection')),
+          matching: find.textContaining('First', findRichText: true),
+        ),
+      ),
     );
     await tester.pump();
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);

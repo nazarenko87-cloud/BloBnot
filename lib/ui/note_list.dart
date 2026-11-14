@@ -4,10 +4,14 @@ import 'package:provider/provider.dart';
 import '../models/note.dart';
 import '../state/vault_controller.dart';
 import 'glyph_avatar.dart';
-import 'hot_tasks_view.dart' show hotAddedLabel;
+import '../utils/properties.dart' show stripFrontMatter;
+import 'hot_tasks_view.dart' show HotBadge, hotAddedLabel;
+import 'theme.dart' show kHotColor;
 import 'inline_editor.dart';
 import 'note_dialogs.dart';
 import 'pulse.dart';
+
+part 'folders_pane.dart';
 
 class NoteList extends StatefulWidget {
   const NoteList({
@@ -15,9 +19,14 @@ class NoteList extends StatefulWidget {
     required this.onNew,
     required this.onNewInProject,
     this.onNoteOpened,
+    this.scope,
   });
   final VoidCallback onNew;
   final void Function(String project) onNewInProject;
+
+  /// Three-column layout: show only the notes in this scope, as one flat
+  /// list with each note's first line. Null keeps the classic grouped list.
+  final NoteScope? scope;
 
   /// Called right after a note is selected (in addition to the selection
   /// itself) — lets a mobile drawer close itself once a note is picked.
@@ -81,6 +90,8 @@ class _NoteListState extends State<NoteList> {
 
   @override
   Widget build(BuildContext context) {
+    final scope = widget.scope;
+    if (scope != null) return _flat(context, scope);
     final controller = context.watch<VaultController>();
     final accent = Theme.of(context).colorScheme.primary;
     final q = _query.toLowerCase();
@@ -360,10 +371,16 @@ class _NoteListState extends State<NoteList> {
     );
   }
 
-  Widget _tile(BuildContext context, VaultController controller, Note note) {
+  Widget _tile(
+    BuildContext context,
+    VaultController controller,
+    Note note, {
+    String? snippet,
+  }) {
     final glyph = controller.glyphFor(note);
     return _NoteTile(
       note: note,
+      snippet: snippet,
       selected: controller.current?.path == note.path,
       hasReminder: controller.hasAnyReminder(note),
       pinned: controller.isPinned(note.title),
@@ -417,115 +434,259 @@ class _NoteListState extends State<NoteList> {
     }
   }
 
-  Future<void> _deleteProject(
-    BuildContext context,
-    String project,
-    int noteCount,
-  ) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete project "$project"?'),
-        content: Text(
-          noteCount == 0
-              ? 'The empty folder will be removed.'
-              : '$noteCount note(s) inside will be moved to the archive, '
-                    'then the folder will be removed.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true && context.mounted) {
-      final messenger = ScaffoldMessenger.maybeOf(context);
-      try {
-        await context.read<VaultController>().deleteProject(project);
-      } on Exception catch (e) {
-        messenger?.showSnackBar(
-          SnackBar(
-            content: Text(
-              'Could not delete the whole project: $e. '
-              'Notes already moved are in the Archive; try again.',
-            ),
-            duration: const Duration(seconds: 8),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _pickColor(BuildContext context, String project) async {
-    final controller = context.read<VaultController>();
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Colour for "$project"'),
-        content: Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            for (var i = 0; i < kProjectColors.length; i++)
-              InkWell(
-                onTap: () {
-                  controller.setProjectColor(project, i);
-                  Navigator.pop(context);
-                },
-                child: CircleAvatar(
-                  radius: 16,
-                  backgroundColor: kProjectColors[i],
+  /// Middle column of the three-column layout: the notes of one scope as a
+  /// flat list, each with its date and first line. Pinned notes first.
+  Widget _flat(BuildContext context, NoteScope scope) {
+    final controller = context.watch<VaultController>();
+    final accent = Theme.of(context).colorScheme.primary;
+    final q = _query.toLowerCase();
+    final notes =
+        controller.notes
+            .where((n) => scope.contains(controller, n))
+            .where(
+              (n) =>
+                  q.isEmpty ||
+                  n.titleLower.contains(q) ||
+                  n.bodyLower.contains(q),
+            )
+            .toList()
+          ..sort((a, b) {
+            final pa = controller.isPinned(a.title);
+            final pb = controller.isPinned(b.title);
+            if (pa != pb) return pa ? -1 : 1;
+            return _compare(a, b);
+          });
+    final folder = scope.folder;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 8, 2),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  scope.title,
+                  key: const Key('notes-column-title'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-            InkWell(
-              onTap: () {
-                controller.setProjectColor(project, null);
-                Navigator.pop(context);
-              },
-              child: const CircleAvatar(
-                radius: 16,
-                child: Icon(Icons.clear, size: 16),
+              Text(
+                '${notes.length}',
+                style: TextStyle(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.62),
+                ),
+              ),
+              if (controller.loadWarning != null) ...[
+                const SizedBox(width: 6),
+                Tooltip(
+                  message:
+                      '${controller.loadWarning}. '
+                      'Refresh (Ctrl+R) to try again.',
+                  child: Icon(
+                    Icons.warning_amber_rounded,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ],
+              PopupMenuButton<_Sort>(
+                tooltip: 'Sort',
+                icon: const Icon(Icons.sort, size: 18),
+                style: _compactButton,
+                initialValue: _sort,
+                onSelected: (v) => setState(() => _sort = v),
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: _Sort.name, child: Text('By name')),
+                  PopupMenuItem(value: _Sort.date, child: Text('By date')),
+                  PopupMenuItem(value: _Sort.size, child: Text('By size')),
+                ],
+              ),
+              IconButton(
+                tooltip: folder == null ? 'New note' : 'New note in "$folder"',
+                style: _compactButton,
+                icon: Icon(Icons.add_circle, size: 22, color: accent),
+                onPressed: folder == null
+                    ? widget.onNew
+                    : () => widget.onNewInProject(folder),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Search in ${scope.title}…',
+              prefixIcon: const Icon(Icons.search, size: 18),
+              suffixIcon: _query.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Clear search',
+                      icon: const Icon(Icons.close, size: 16),
+                      onPressed: _clearSearch,
+                    ),
+              isDense: true,
+              filled: true,
+              fillColor: accent.withValues(alpha: 0.06),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
               ),
             ),
-          ],
+            onChanged: (v) => setState(() => _query = v),
+          ),
         ),
-      ),
+        Expanded(
+          child: notes.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      _query.isEmpty
+                          ? 'No notes here yet.\nUse + to add one.'
+                          : 'Nothing matches "$_query".',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.62),
+                      ),
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  key: const Key('notes-column'),
+                  itemCount: notes.length,
+                  itemBuilder: (context, i) => _tile(
+                    context,
+                    controller,
+                    notes[i],
+                    snippet: firstLineOf(notes[i]),
+                  ),
+                ),
+        ),
+      ],
     );
   }
+}
 
-  Future<void> _newProject(BuildContext context) async {
-    final ctrl = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('New project'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Folder name'),
-          onSubmitted: (v) => Navigator.pop(context, v.trim()),
+Future<void> _deleteProject(
+  BuildContext context,
+  String project,
+  int noteCount,
+) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('Delete project "$project"?'),
+      content: Text(
+        noteCount == 0
+            ? 'The empty folder will be removed.'
+            : '$noteCount note(s) inside will be moved to the archive, '
+                  'then the folder will be removed.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Delete'),
+        ),
+      ],
+    ),
+  );
+  if (ok == true && context.mounted) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      await context.read<VaultController>().deleteProject(project);
+    } on Exception catch (e) {
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not delete the whole project: $e. '
+            'Notes already moved are in the Archive; try again.',
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
-            child: const Text('Create'),
+          duration: const Duration(seconds: 8),
+        ),
+      );
+    }
+  }
+}
+
+Future<void> _pickColor(BuildContext context, String project) async {
+  final controller = context.read<VaultController>();
+  await showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('Colour for "$project"'),
+      content: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          for (var i = 0; i < kProjectColors.length; i++)
+            InkWell(
+              onTap: () {
+                controller.setProjectColor(project, i);
+                Navigator.pop(context);
+              },
+              child: CircleAvatar(
+                radius: 16,
+                backgroundColor: kProjectColors[i],
+              ),
+            ),
+          InkWell(
+            onTap: () {
+              controller.setProjectColor(project, null);
+              Navigator.pop(context);
+            },
+            child: const CircleAvatar(
+              radius: 16,
+              child: Icon(Icons.clear, size: 16),
+            ),
           ),
         ],
       ),
-    );
-    if (name == null || name.isEmpty || !context.mounted) return;
-    await context.read<VaultController>().createProject(name);
-  }
+    ),
+  );
+}
+
+Future<void> _newProject(BuildContext context) async {
+  final ctrl = TextEditingController();
+  final name = await showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('New project'),
+      content: TextField(
+        controller: ctrl,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: 'Folder name'),
+        onSubmitted: (v) => Navigator.pop(context, v.trim()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+          child: const Text('Create'),
+        ),
+      ],
+    ),
+  );
+  if (name == null || name.isEmpty || !context.mounted) return;
+  await context.read<VaultController>().createProject(name);
 }
 
 class _RecentRow extends StatefulWidget {
@@ -642,6 +803,7 @@ class _SectionLabel extends StatelessWidget {
 class _NoteTile extends StatelessWidget {
   const _NoteTile({
     required this.note,
+    this.snippet,
     required this.selected,
     required this.hasReminder,
     required this.pinned,
@@ -659,6 +821,10 @@ class _NoteTile extends StatelessWidget {
   });
 
   final Note note;
+
+  /// First line of the note's text, shown under the date (three-column
+  /// layout). Null shows the date alone.
+  final String? snippet;
   final bool selected;
   final bool hasReminder;
   final bool pinned;
@@ -723,11 +889,16 @@ class _NoteTile extends StatelessWidget {
         subtitle: renaming
             ? null
             : Text(
-                hotAddedLabel(note.modified, DateTime.now()),
+                snippet == null || snippet!.isEmpty
+                    ? hotAddedLabel(note.modified, DateTime.now())
+                    : '${hotAddedLabel(note.modified, DateTime.now())}'
+                          '  ·  $snippet',
                 key: Key('note-stamp-${note.title}'),
+                maxLines: snippet == null ? 1 : 2,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 10.5,
-                  height: 1.1,
+                  fontSize: snippet == null ? 10.5 : 11.5,
+                  height: snippet == null ? 1.1 : 1.3,
                   color: Theme.of(
                     context,
                   ).colorScheme.onSurface.withValues(alpha: 0.62),
@@ -758,4 +929,81 @@ class _NoteTile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Which notes the middle column of the three-column layout shows.
+@immutable
+class NoteScope {
+  const NoteScope._(this.kind, [this.value]);
+
+  static const all = NoteScope._('all');
+  static const pinned = NoteScope._('pinned');
+  static const unfiled = NoteScope._('unfiled');
+  const NoteScope.folder(String name) : this._('folder', name);
+  const NoteScope.tag(String tag) : this._('tag', tag);
+
+  /// 'all' | 'pinned' | 'unfiled' | 'folder' | 'tag'.
+  final String kind;
+  final String? value;
+
+  String? get folder => kind == 'folder' ? value : null;
+
+  String get title => switch (kind) {
+    'pinned' => 'Pinned',
+    'unfiled' => 'No folder',
+    'folder' => value!,
+    'tag' => '#$value',
+    _ => 'All notes',
+  };
+
+  bool contains(VaultController c, Note n) => switch (kind) {
+    'pinned' => c.isPinned(n.title),
+    'unfiled' => c.projectOf(n).isEmpty,
+    'folder' => c.projectOf(n) == value,
+    'tag' => n.tags.any((t) => t.toLowerCase() == value!.toLowerCase()),
+    _ => true,
+  };
+
+  /// Still points at something that exists (a renamed or deleted folder,
+  /// a tag no note uses any more, does not).
+  bool isValidIn(VaultController c) => switch (kind) {
+    'folder' => c.projects.contains(value),
+    'tag' => c.notes.any((n) => contains(c, n)),
+    _ => true,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      other is NoteScope && other.kind == kind && other.value == value;
+
+  @override
+  int get hashCode => Object.hash(kind, value);
+}
+
+/// The first line a reader would see in [note]: no front matter, no title
+/// heading, Markdown marks stripped, at most ~140 characters.
+String firstLineOf(Note note) {
+  final lines = stripFrontMatter(note.body).split('\n');
+  for (final raw in lines) {
+    final line = raw.trim();
+    if (line.isEmpty || line == '# ${note.title}') continue;
+    final plain = line
+        .replaceFirst(
+          RegExp(r'^(#{1,6}\s+|[-*+]\s+(\[[ xX]\]\s+)?|\d+\.\s+|>\s*)'),
+          '',
+        )
+        .replaceAllMapped(
+          RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]'),
+          (m) => (m.group(2) ?? m.group(1))!,
+        )
+        .replaceAllMapped(
+          RegExp(r'!?\[([^\]]*)\]\([^)]*\)'),
+          (m) => m.group(1)!,
+        )
+        .replaceAll(RegExp(r'[*_`~]|\{\{remind:[^}]*\}\}'), '')
+        .trim();
+    if (plain.isEmpty) continue;
+    return plain.length > 140 ? '${plain.substring(0, 140)}…' : plain;
+  }
+  return '';
 }

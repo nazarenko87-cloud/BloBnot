@@ -31,6 +31,11 @@ class VaultSettings {
 
   final bool lineNumbers;
 
+  /// Window layout on desktop: 'columns' (folders | notes | editor, the
+  /// default) or 'classic' (icon rail, grouped list, tabs). Independent of
+  /// the colour theme.
+  final String layout;
+
   const VaultSettings({
     this.themeMode = 'system',
     this.themeStyle = 'petrol',
@@ -40,6 +45,7 @@ class VaultSettings {
     this.livePreview = true,
     this.readableWidth = true,
     this.lineNumbers = true,
+    this.layout = 'columns',
   });
 
   Map<String, dynamic> toJson() => {
@@ -51,6 +57,7 @@ class VaultSettings {
     'livePreview': livePreview,
     'readableWidth': readableWidth,
     'lineNumbers': lineNumbers,
+    'layout': layout,
   };
 
   factory VaultSettings.fromJson(Map<String, dynamic> j) {
@@ -80,6 +87,7 @@ class VaultSettings {
       livePreview: (j['livePreview'] as bool?) ?? true,
       readableWidth: (j['readableWidth'] as bool?) ?? true,
       lineNumbers: (j['lineNumbers'] as bool?) ?? true,
+      layout: j['layout'] == 'classic' ? 'classic' : 'columns',
     );
   }
 
@@ -92,6 +100,7 @@ class VaultSettings {
     bool? livePreview,
     bool? readableWidth,
     bool? lineNumbers,
+    String? layout,
   }) => VaultSettings(
     themeMode: themeMode ?? this.themeMode,
     themeStyle: themeStyle ?? this.themeStyle,
@@ -101,6 +110,7 @@ class VaultSettings {
     livePreview: livePreview ?? this.livePreview,
     readableWidth: readableWidth ?? this.readableWidth,
     lineNumbers: lineNumbers ?? this.lineNumbers,
+    layout: layout ?? this.layout,
   );
 }
 

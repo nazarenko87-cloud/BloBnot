@@ -23,6 +23,7 @@ import 'table_view.dart';
 import 'lock_screen.dart';
 import 'mobile/mobile_home.dart';
 import 'mobile/mobile_pages.dart';
+import 'note_dialogs.dart' show showArchiveDialog;
 import 'note_list.dart';
 import 'open_tabs.dart';
 import 'settings_dialog.dart';
@@ -233,6 +234,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _showList = true;
   _MainView _view = _MainView.notes;
 
+  /// What the middle column lists in the three-column layout.
+  NoteScope _scope = NoteScope.all;
+
+  /// Below this width three columns leave the note too little room; the
+  /// window falls back to the classic layout until it is widened again.
+  static const double _columnsMinWidth = 1000;
+
   bool get _showDashboard => _view == _MainView.dashboard;
   bool get _showHot => _view == _MainView.hot;
   bool get _showTable => _view == _MainView.table;
@@ -331,6 +339,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   );
 
   Widget _shell(BuildContext context) {
+    final layout = context.select<VaultController, String>(
+      (c) => c.settings.layout,
+    );
+    if (layout == 'columns' &&
+        MediaQuery.sizeOf(context).width >= _columnsMinWidth) {
+      return _columnsShell(context);
+    }
     // Card-based v2.0 shell: floating rounded panels on the page colour.
     return Scaffold(
       body: Padding(
@@ -375,6 +390,136 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Three-column layout: folders and views | the notes of the chosen
+  /// folder or tag, with their first line | the open note.
+  Widget _columnsShell(BuildContext context) {
+    final controller = context.watch<VaultController>();
+    // A folder that was renamed or deleted elsewhere falls back to all notes.
+    final scope = _scope.isValidIn(controller) ? _scope : NoteScope.all;
+    final pane = FoldersPane(
+      scope: scope,
+      view: _view.name,
+      onScope: (s) => setState(() {
+        _scope = s;
+        _view = _MainView.notes;
+      }),
+      onHot: () => _go(_MainView.hot),
+      onDashboard: () => _go(_MainView.dashboard),
+      onTable: () => _go(_MainView.table),
+      onNewInProject: (project) => _newNote(context, initialProject: project),
+      footer: _columnsTools(context),
+    );
+    return Scaffold(
+      body: Padding(
+        padding: const EdgeInsets.all(kShellGap),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(width: 228, child: ShellCard(child: pane)),
+            const SizedBox(width: kShellGap),
+            Expanded(
+              child: switch (_view) {
+                _MainView.hot => HotTasksView(
+                  card: (child) => ShellCard(child: child),
+                ),
+                _MainView.table => NoteTableView(
+                  card: (child) => ShellCard(child: child),
+                  onOpenNote: _showNotes,
+                ),
+                _MainView.dashboard => ShellCard(
+                  child: DashboardView(onOpenNote: _showNotes),
+                ),
+                _MainView.notes => Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      width: 300,
+                      child: ShellCard(
+                        child: NoteList(
+                          key: const Key('notes-column-list'),
+                          scope: scope,
+                          onNew: () => _newNote(context),
+                          onNewInProject: (project) =>
+                              _newNote(context, initialProject: project),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: kShellGap),
+                    // The notes column is the way back to a note, so the tab
+                    // strip is left out here.
+                    Expanded(child: _editorAndGraph(context, tabs: false)),
+                  ],
+                ),
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Tool buttons at the foot of the folders column.
+  Widget _columnsTools(BuildContext context) {
+    Widget tool(
+      IconData icon,
+      String tip,
+      VoidCallback onTap, {
+      bool on = false,
+    }) => IconButton(
+      tooltip: tip,
+      isSelected: on,
+      iconSize: 20,
+      // Five 48 px buttons do not fit the 228 px column; 38 px ones do.
+      style: IconButton.styleFrom(
+        minimumSize: const Size.square(38),
+        fixedSize: const Size.square(38),
+        padding: EdgeInsets.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        backgroundColor: on
+            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.18)
+            : null,
+      ),
+      icon: Icon(icon),
+      onPressed: onTap,
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          tool(
+            Icons.bolt,
+            'Quick switcher (Ctrl+P)',
+            () => _quickSwitcher(context),
+          ),
+          tool(
+            Icons.hub_outlined,
+            _showGraph ? 'Hide graph' : 'Show graph',
+            () => setState(() {
+              _showGraph = !_showGraph;
+              if (_showGraph) _view = _MainView.notes;
+            }),
+            on: _showGraph,
+          ),
+          tool(
+            Icons.archive_outlined,
+            'Archive',
+            () => showArchiveDialog(context),
+          ),
+          tool(
+            Icons.settings_outlined,
+            'Settings',
+            () => showSettingsDialog(context),
+          ),
+          Builder(
+            builder: (context) =>
+                tool(Icons.more_horiz, 'More', () => _moreMenu(context)),
+          ),
+        ],
       ),
     );
   }
@@ -805,7 +950,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
   }
 
-  Widget _editorAndGraph(BuildContext context) {
+  Widget _editorAndGraph(BuildContext context, {bool tabs = true}) {
     final hasExternalFiles = context
         .watch<ExternalFilesController>()
         .hasOpenFiles;
@@ -817,10 +962,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 Expanded(child: ExternalFileViewer()),
               ],
             )
-          : const Column(
+          : Column(
               children: [
-                OpenTabs(),
-                Expanded(child: EditorPane()),
+                if (tabs) const OpenTabs(),
+                const Expanded(child: EditorPane()),
               ],
             ),
     );

@@ -920,6 +920,7 @@ class VaultController extends ChangeNotifier {
     bool? livePreview,
     bool? readableWidth,
     bool? lineNumbers,
+    String? layout,
   }) async {
     _settings = _settings.copyWith(
       themeMode: mode,
@@ -930,6 +931,7 @@ class VaultController extends ChangeNotifier {
       livePreview: livePreview,
       readableWidth: readableWidth,
       lineNumbers: lineNumbers,
+      layout: layout,
     );
     notifyListeners();
     await _settingsStore?.save(_settings);

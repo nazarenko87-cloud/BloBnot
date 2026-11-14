@@ -32,6 +32,8 @@ void main() {
         passwordStore: PasswordStore(file: File('${dir.path}/pw.json')),
       );
       await controller.openVault(dir.path);
+      // The rail tests below are about the classic layout.
+      await controller.setTheme(layout: 'classic');
     });
     await tester.pumpWidget(
       MultiProvider(
